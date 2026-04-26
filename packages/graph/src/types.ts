@@ -31,6 +31,7 @@ export interface TraverseStep {
 
 export interface GraphInitOptions {
   vectorDims?: number;
+  awaitIndexesSeconds?: number;
 }
 
 export interface GraphStore {

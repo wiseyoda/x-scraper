@@ -15,6 +15,7 @@ import type { EdgeType, EntityType } from '@x-scraper/core';
 import neo4j, { type Driver, type Session } from 'neo4j-driver';
 
 import {
+  DEFAULT_AWAIT_INDEXES_SECONDS,
   DEFAULT_EMBED_DIMS,
   DEFAULT_SIMILARITY,
   ID_CONSTRAINTS,
@@ -77,6 +78,12 @@ export const createNeo4jGraph = (config: Neo4jConfig): GraphStore => {
       await session.run(
         buildVectorIndex(VECTOR_INDEX_NAME, 'Claim', VECTOR_INDEX_PROP, dims, DEFAULT_SIMILARITY),
       );
+      // Block until every newly-created index is ONLINE. Without this, a
+      // cold-start init() can return while the vector index is POPULATING
+      // and an immediate vectorSearch() will fail.
+      await session.run('CALL db.awaitIndexes($timeout)', {
+        timeout: neoIntFromNumber(options.awaitIndexesSeconds ?? DEFAULT_AWAIT_INDEXES_SECONDS),
+      });
     });
   };
 

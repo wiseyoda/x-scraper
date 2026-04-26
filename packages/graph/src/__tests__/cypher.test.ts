@@ -71,10 +71,19 @@ describe('buildUpsertNode', () => {
 describe('buildUpsertEdge', () => {
   it('writes valid_at, invalid_at, and confidence on both branches', () => {
     const sql = buildUpsertEdge('CONTRADICTS');
-    expect(sql).toContain('MERGE (a)-[r:CONTRADICTS]->(b)');
+    expect(sql).toContain('CREATE (a)-[r:CONTRADICTS]->(b)');
     expect(sql).toContain('r.valid_at = $validAt');
     expect(sql).toContain('r.invalid_at = $invalidAt');
     expect(sql).toContain('r.confidence = $confidence');
+  });
+
+  it('only matches the current (invalid_at IS NULL) edge for re-upsert', () => {
+    const sql = buildUpsertEdge('SUPPORTS');
+    expect(sql).toContain('OPTIONAL MATCH (a)-[existing:SUPPORTS]->(b)');
+    expect(sql).toContain('WHERE existing.invalid_at IS NULL');
+    // Two FOREACH branches: one for create (existing IS NULL), one for update.
+    expect(sql).toContain('CASE WHEN existing IS NULL');
+    expect(sql).toContain('CASE WHEN existing IS NOT NULL');
   });
 });
 
@@ -104,6 +113,9 @@ describe('buildTraversal', () => {
     const sql = buildTraversal(2);
     expect(sql).toContain('-[r*1..2]->(target)');
     expect(sql).toContain('rel.invalid_at IS NULL');
+    expect(sql).toContain('UNWIND relationships(p) AS rel');
+    // Sanity: no leftover placeholder from earlier flawed implementation.
+    expect(sql).not.toContain('$_');
   });
 
   it('filters by the supplied edge types', () => {

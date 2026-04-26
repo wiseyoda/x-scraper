@@ -60,12 +60,26 @@ ON MATCH SET n += $props, n.embedding = $embedding`;
 
 export const buildUpsertEdge = (edgeType: EdgeType): string => {
   assertValidEdgeType(edgeType);
+  // Bi-temporal upsert: only the relationship with invalid_at IS NULL is the
+  // "current" one. Re-upserting must update that current edge in place, but
+  // must NEVER reset invalid_at on a previously invalidated edge — that would
+  // erase history. We OPTIONAL MATCH on the current edge, then FOREACH to
+  // either CREATE a new current edge (none exists) or SET the existing one.
   return `MATCH (a { id: $from }), (b { id: $to })
-MERGE (a)-[r:${edgeType}]->(b)
-ON CREATE SET r.valid_at = $validAt, r.invalid_at = $invalidAt,
-              r.confidence = $confidence, r += $props
-ON MATCH SET r.valid_at = $validAt, r.invalid_at = $invalidAt,
-             r.confidence = $confidence, r += $props
+OPTIONAL MATCH (a)-[existing:${edgeType}]->(b)
+WHERE existing.invalid_at IS NULL
+FOREACH (_ IN CASE WHEN existing IS NULL THEN [1] ELSE [] END |
+  CREATE (a)-[r:${edgeType}]->(b)
+  SET r.valid_at = $validAt, r.invalid_at = $invalidAt,
+      r.confidence = $confidence, r += $props
+)
+FOREACH (_ IN CASE WHEN existing IS NOT NULL THEN [1] ELSE [] END |
+  SET existing.valid_at = $validAt, existing.invalid_at = $invalidAt,
+      existing.confidence = $confidence, existing += $props
+)
+WITH a, b
+OPTIONAL MATCH (a)-[r:${edgeType}]->(b)
+WHERE r.invalid_at IS NULL
 RETURN r`;
 };
 
@@ -88,16 +102,14 @@ export const buildTraversal = (depth: number, edgeTypes?: EdgeType[]): string =>
     edgeTypes !== undefined && edgeTypes.length > 0
       ? edgeTypes.map((t) => `:${assertValidEdgeType(t)}`).join('|')
       : '';
-  // Variable-length traversal up to `depth` hops; record each (rel, target)
-  // pair so callers can reconstruct the walk.
+  // Variable-length walk up to `depth` hops; emit one row per traversed
+  // relationship so callers can reconstruct the walk.
   return `MATCH p = (start { id: $startId })-[r${filter}*1..${depth.toString()}]->(target)
 WHERE all(rel IN relationships(p) WHERE rel.invalid_at IS NULL)
-WITH start, relationships(p) AS rels, [n IN nodes(p) WHERE n <> start] AS hops
-UNWIND range(0, size(rels) - 1) AS i
-WITH rels[i] AS rel, hops[i] AS hop, [n IN nodes($_, range(0, i)) | n] AS prefix
+UNWIND relationships(p) AS rel
 RETURN startNode(rel).id AS fromId, type(rel) AS edgeType,
        endNode(rel).id AS toId, labels(endNode(rel))[0] AS toType
-LIMIT 200`.replace('nodes($_', 'nodes(p)');
+LIMIT 200`;
 };
 
 export const buildCountNodes = (label?: EntityType): string => {
