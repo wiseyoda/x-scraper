@@ -1,5 +1,8 @@
 /**
  * `xs status` — per-status job counts (optionally scoped to a run).
+ *
+ * When --run is supplied, both the status counts AND the DLQ count
+ * are scoped to that run so the dashboard never mixes scopes.
  */
 
 import { createSqliteQueue, type QueueStats } from '@x-scraper/queue';
@@ -16,7 +19,8 @@ export const runStatus = (config: CliConfig, runId: string | null = null): Statu
   const queue = createSqliteQueue(config.queuePath);
   try {
     const stats = runId === null ? queue.stats() : queue.stats(runId);
-    const dlqCount = queue.listDlq().length;
+    const dlq = queue.listDlq();
+    const dlqCount = runId === null ? dlq.length : dlq.filter((j) => j.runId === runId).length;
     return { runId, stats, dlqCount };
   } finally {
     queue.close();

@@ -43,6 +43,37 @@ describe('runStatus', () => {
     expect(result.stats.pending).toBe(0);
     expect(result.dlqCount).toBe(0);
   });
+
+  it('scopes the DLQ count to the supplied run', async () => {
+    await runInit(config);
+    const { createSqliteQueue, STAGES } = await import('@x-scraper/queue');
+    const q = createSqliteQueue(config.queuePath);
+    const runA = q.startRun();
+    const runB = q.startRun();
+    q.enqueue({ runId: runA, sourceId: 'src_a', sourceKind: 'bookmarks', idempotencyKey: 'a' });
+    q.enqueue({ runId: runB, sourceId: 'src_b', sourceKind: 'bookmarks', idempotencyKey: 'b' });
+    const claimed = q.claimNext();
+    if (!claimed?.currentAttemptId) throw new Error('expected lease');
+    q.failStage({
+      jobId: claimed.jobId,
+      stage: STAGES[0],
+      attemptId: claimed.currentAttemptId,
+      errorCode: 'X',
+      errorMsg: 'x',
+      maxAttempts: 1,
+    });
+    q.close();
+    // The failed job lives in whichever run got claimed first; the
+    // OTHER run must therefore see zero DLQ entries.
+    const failedRun = claimed.runId;
+    const otherRun = failedRun === runA ? runB : runA;
+    const all = runStatus(config);
+    expect(all.dlqCount).toBe(1);
+    const scopedFailed = runStatus(config, failedRun);
+    expect(scopedFailed.dlqCount).toBe(1);
+    const scopedOther = runStatus(config, otherRun);
+    expect(scopedOther.dlqCount).toBe(0);
+  });
 });
 
 describe('runCost', () => {

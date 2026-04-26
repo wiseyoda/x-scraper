@@ -79,26 +79,30 @@ const checkQueue = async (config: CliConfig): Promise<Check> => {
 
 const checkEnvFile = async (): Promise<Check[]> => {
   const out: Check[] = [];
-  if (!(await fileExists(ENV_FILE_PATH))) {
+  const envPresent = await fileExists(ENV_FILE_PATH);
+  if (!envPresent) {
     out.push({
       name: 'env-file',
-      status: 'WARN',
-      detail: `${ENV_FILE_PATH} not found — create it (chmod 600) before syncing`,
-    });
-    return out;
-  }
-  const stat = await fs.stat(ENV_FILE_PATH);
-
-  if ((stat.mode & ENV_FILE_PERMS_MASK) !== 0) {
-    out.push({
-      name: 'env-perms',
-      status: 'WARN',
-      detail: `${ENV_FILE_PATH} should be chmod 600 (group/other readable)`,
+      status: 'FAIL',
+      detail: `${ENV_FILE_PATH} not found — create it (chmod 600) with the required keys`,
     });
   } else {
-    out.push({ name: 'env-perms', status: 'PASS', detail: `${ENV_FILE_PATH} is chmod 600` });
+    const stat = await fs.stat(ENV_FILE_PATH);
+    // eslint-disable-next-line no-bitwise
+    if ((stat.mode & ENV_FILE_PERMS_MASK) !== 0) {
+      out.push({
+        name: 'env-perms',
+        status: 'WARN',
+        detail: `${ENV_FILE_PATH} should be chmod 600 (group/other readable)`,
+      });
+    } else {
+      out.push({ name: 'env-perms', status: 'PASS', detail: `${ENV_FILE_PATH} is chmod 600` });
+    }
   }
-  const env = await parseEnvFile(ENV_FILE_PATH);
+  // Always emit a row per required key, regardless of whether the env
+  // file is present, so a missing key surfaces as FAIL rather than as
+  // a silent skip.
+  const env = envPresent ? await parseEnvFile(ENV_FILE_PATH) : new Map<string, string>();
   for (const key of REQUIRED_KEYS) {
     out.push(
       env.has(key)
