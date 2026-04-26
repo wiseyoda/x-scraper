@@ -20,6 +20,7 @@ export default defineConfig({
       '@x-scraper/mcp-server': resolve(__dirname, 'packages/mcp-server/src/index.ts'),
       '@x-scraper/rest': resolve(__dirname, 'packages/rest/src/index.ts'),
       '@x-scraper/digest': resolve(__dirname, 'packages/digest/src/index.ts'),
+      '@x-scraper/observability': resolve(__dirname, 'packages/observability/src/index.ts'),
     },
   },
   test: {
