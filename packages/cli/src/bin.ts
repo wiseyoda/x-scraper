@@ -6,13 +6,21 @@
  * exercise this dispatcher.
  */
 
+import { createMarkdownVault } from '@x-scraper/vault';
+
 import { parseArgs } from './argparse.js';
+import { runAuthLogin } from './commands/auth.js';
 import { runCost } from './commands/cost.js';
 import { type CheckStatus, runDoctor } from './commands/doctor.js';
 import { runInit } from './commands/init.js';
+import { MCP_CLIENTS, type McpClient, runMcpRegister } from './commands/mcp-register.js';
+import { runReindex } from './commands/reindex.js';
+import { runReview } from './commands/review.js';
 import { runStatus } from './commands/status.js';
+import { runSync } from './commands/sync/index.js';
+import { buildCuratedSources, wireSyncDeps } from './commands/sync/wire.js';
 import { resolveConfig } from './config.js';
-import { EXIT_FAIL, EXIT_OK, EXIT_USAGE } from './constants.js';
+import { ENV_FILE_PATH, EXIT_FAIL, EXIT_OK, EXIT_USAGE } from './constants.js';
 
 const HELP = `xs — local-first knowledge graph from X.com bookmarks/likes/posts
 
@@ -20,11 +28,21 @@ Usage:
   xs <command> [options]
 
 Commands:
-  init                Create the vault and the SQLite queue
-  status [--run=ID]   Per-status job counts (optionally scoped to a run)
-  cost [--since=ISO]  Total USD spent on LLM/embedding calls since a date
-  doctor              Sanity-check the local environment
-  help                Show this message
+  init                              Create the vault and the SQLite queue
+  status [--run=ID]                 Per-status job counts (optionally scoped to a run)
+  cost [--since=ISO]                Total USD spent on LLM/embedding calls since a date
+  doctor                            Sanity-check the local environment
+  sync --urls=<a,b,c> [--limit=N]   Run the ingest pipeline against a list of URLs
+       [--source=bookmarks]         Source kind tag for the ingested items
+       [--max-attempts=N]           Per-job retry budget (default 3)
+       [--dry-run]                  Skip the update_graph stage
+  reindex --from-vault [--limit=N]  Rebuild the graph from existing vault markdown
+       [--max-attempts=N]
+  auth login [--profile-dir=DIR]    Open an authenticated x.com session (Patchright)
+  mcp register --client=CLIENT      Wire xs-mcp into a client config
+                                    (CLIENT: claude|codex|gemini)
+  review                            List entity records that need human triage
+  help                              Show this message
 
 Environment:
   XSCRAPER_VAULT      Vault directory (default: ~/Documents/x-scraper-vault)
@@ -81,6 +99,126 @@ const runMain = async (): Promise<number> => {
         console.log(`${STATUS_GLYPH[check.status]} ${check.name.padEnd(24)} ${check.detail}`);
       }
       return anyFail ? EXIT_FAIL : EXIT_OK;
+    }
+    case 'auth': {
+      const sub = args.positionals[0];
+      if (sub !== 'login') {
+        console.error(`xs auth: unknown subcommand "${sub ?? ''}" — only 'login' is supported`);
+        return EXIT_USAGE;
+      }
+      const profileDir = args.options.get('profile-dir');
+      const result = await runAuthLogin({
+        ...(profileDir === undefined ? {} : { profileDir }),
+      });
+      console.log(
+        `auth: ${result.screenName} (id ${result.userId}) via ${result.pathTaken}; profile=${result.profileDir}`,
+      );
+      return EXIT_OK;
+    }
+    case 'mcp': {
+      const sub = args.positionals[0];
+      if (sub !== 'register') {
+        console.error(`xs mcp: unknown subcommand "${sub ?? ''}" — only 'register' is supported`);
+        return EXIT_USAGE;
+      }
+      const clientArg = args.options.get('client');
+      if (clientArg === undefined || !(MCP_CLIENTS as string[]).includes(clientArg)) {
+        console.error(
+          `xs mcp register: --client must be one of ${MCP_CLIENTS.join('|')} (got ${clientArg ?? 'nothing'})`,
+        );
+        return EXIT_USAGE;
+      }
+      const binPath = args.options.get('bin');
+      const result = await runMcpRegister(clientArg as McpClient, {
+        ...(binPath === undefined ? {} : { binPath }),
+      });
+      console.log(
+        `mcp register ${result.client}: ${result.changed ? 'wrote' : 'unchanged'} ${result.configPath}`,
+      );
+      return EXIT_OK;
+    }
+    case 'review': {
+      const vault = createMarkdownVault(config.vaultDir);
+      const result = await runReview(vault);
+      console.log(`review: scanned ${String(result.scanned)} entity records`);
+      if (result.candidates.length === 0) {
+        console.log('  no duplicate-name candidates found');
+        return EXIT_OK;
+      }
+      for (const c of result.candidates) {
+        console.log(`  [${c.type}] ${c.name} — ${String(c.ids.length)} duplicates`);
+        for (const p of c.paths) console.log(`    ${p}`);
+      }
+      return EXIT_OK;
+    }
+    case 'reindex': {
+      if (!args.flags.has('from-vault')) {
+        console.error('xs reindex: --from-vault is required (no other source supported yet)');
+        return EXIT_USAGE;
+      }
+      const limitStr = args.options.get('limit');
+      const maxAttemptsStr = args.options.get('max-attempts');
+      const wired = await wireSyncDeps(
+        {
+          envFilePath: ENV_FILE_PATH,
+          vaultDir: config.vaultDir,
+          queuePath: config.queuePath,
+        },
+        [],
+      );
+      try {
+        const result = await runReindex(wired.deps, {
+          ...(limitStr === undefined ? {} : { limit: Number(limitStr) }),
+          ...(maxAttemptsStr === undefined ? {} : { maxAttempts: Number(maxAttemptsStr) }),
+        });
+        console.log(
+          `reindex ${result.runId}: loaded=${String(result.sourcesLoaded)} done=${String(result.jobsCompleted)} dead=${String(result.jobsDead)} failed=${String(result.jobsFailed)} cost=$${result.totalCostUsd.toFixed(4)} duration=${String(result.durationMs)}ms`,
+        );
+        return result.jobsDead > 0 ? EXIT_FAIL : EXIT_OK;
+      } finally {
+        await wired.cleanup();
+      }
+    }
+    case 'sync': {
+      const urlsArg = args.options.get('urls');
+      if (urlsArg === undefined || urlsArg.length === 0) {
+        console.error('xs sync: --urls is required (comma-separated list of URLs to ingest)');
+        return EXIT_USAGE;
+      }
+      const urls = urlsArg
+        .split(',')
+        .map((u) => u.trim())
+        .filter((u) => u.length > 0);
+      const curated = buildCuratedSources(urls);
+      const limitStr = args.options.get('limit');
+      const maxAttemptsStr = args.options.get('max-attempts');
+      const sourceKind = args.options.get('source') ?? 'bookmarks';
+      if (sourceKind !== 'bookmarks' && sourceKind !== 'likes' && sourceKind !== 'posts') {
+        console.error(`xs sync: --source must be bookmarks|likes|posts (got ${sourceKind})`);
+        return EXIT_USAGE;
+      }
+      const wired = await wireSyncDeps(
+        {
+          envFilePath: ENV_FILE_PATH,
+          vaultDir: config.vaultDir,
+          queuePath: config.queuePath,
+        },
+        curated.map((c) => ({ ...c, sourceKind })),
+      );
+      try {
+        const result = await runSync(wired.deps, {
+          source: sourceKind,
+          ...(limitStr === undefined ? {} : { limit: Number(limitStr) }),
+          ...(maxAttemptsStr === undefined ? {} : { maxAttempts: Number(maxAttemptsStr) }),
+          ...(args.flags.has('dry-run') ? { skipGraph: true } : {}),
+        });
+        console.log(
+          `sync ${result.runId}: enqueued=${String(result.jobsEnqueued)} done=${String(result.jobsCompleted)} dead=${String(result.jobsDead)} failed=${String(result.jobsFailed)} cost=$${result.totalCostUsd.toFixed(4)} duration=${String(result.durationMs)}ms`,
+        );
+        return result.jobsDead > 0 ? EXIT_FAIL : EXIT_OK;
+      } finally {
+        await wired.cleanup();
+      }
     }
     default:
       console.error(`unknown command: ${args.command}`);

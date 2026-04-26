@@ -165,6 +165,50 @@ describe('createSqliteQueue', () => {
     expect(() => queue.completeStage(jobId, STAGES[1], attemptId)).toThrow(QueueError);
   });
 
+  it('completeAllStages marks the job done in one transaction', () => {
+    const runId = queue.startRun();
+    queue.enqueue({
+      runId,
+      sourceId: 'src_1',
+      sourceKind: 'bookmarks',
+      idempotencyKey: 'k',
+    });
+    const job = queue.claimNext();
+    if (!job?.currentAttemptId) throw new Error('expected lease token');
+    const final = queue.completeAllStages(job.jobId, job.currentAttemptId);
+    expect(final.status).toBe('done');
+    expect(final.leasedAt).toBeNull();
+    expect(queue.claimNext()).toBeNull();
+  });
+
+  it('completeAllStages rejects a stale attempt id', () => {
+    const runId = queue.startRun();
+    const jobId = queue.enqueue({
+      runId,
+      sourceId: 'src_1',
+      sourceKind: 'bookmarks',
+      idempotencyKey: 'k',
+    });
+    const job = queue.claimNext();
+    if (!job?.currentAttemptId) throw new Error('expected lease token');
+    queue.completeAllStages(jobId, job.currentAttemptId);
+    // Second call with the same attemptId — already-finished job, lease cleared.
+    expect(() => queue.completeAllStages(jobId, job.currentAttemptId ?? 0)).toThrow(QueueError);
+  });
+
+  it('claimNext({runId}) only returns jobs from the requested run', () => {
+    const runA = queue.startRun();
+    const runB = queue.startRun();
+    queue.enqueue({ runId: runA, sourceId: 'a', sourceKind: 'bookmarks', idempotencyKey: 'a' });
+    queue.enqueue({ runId: runB, sourceId: 'b', sourceKind: 'bookmarks', idempotencyKey: 'b' });
+    const onlyB = queue.claimNext({ runId: runB });
+    expect(onlyB?.runId).toBe(runB);
+    expect(onlyB?.sourceId).toBe('b');
+    // runA's job stays untouched.
+    const stillA = queue.listJobs({ runId: runA, status: 'pending' });
+    expect(stillA).toHaveLength(1);
+  });
+
   it('rejects completeStage with a stale attempt id (lease theft protection)', () => {
     const runId = queue.startRun();
     const jobId = queue.enqueue({

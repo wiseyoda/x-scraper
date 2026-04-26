@@ -42,6 +42,14 @@ export interface ExistingClaim {
   object: string;
   validAt: string;
   invalidAt: string | null;
+  /**
+   * Source the existing claim was extracted from. Required so that
+   * UPDATE/DELETE decisions can invalidate the original claim's actual
+   * EXTRACTED_FROM edge — without this, the dispatcher would invalidate
+   * an edge to the new (unrelated) source and silently leave the
+   * superseded claim still current in the graph.
+   */
+  sourceId: string;
 }
 
 export interface ReconcileDecision {

@@ -1,14 +1,11 @@
 {
-  "name": "@x-scraper/cli",
+  "name": "@x-scraper/community",
   "version": "0.0.0",
   "private": true,
-  "description": "xs CLI — init, status, cost, reindex, doctor.",
+  "description": "Community detection (Louvain) over the Concept/Topic subgraph.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": {
-    "xs": "./dist/bin.js"
-  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -23,19 +20,10 @@
     "build:watch": "tsc -p tsconfig.json --watch"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.91.1",
     "@x-scraper/core": "workspace:*",
-    "@x-scraper/embeddings": "workspace:*",
-    "@x-scraper/extractor": "workspace:*",
     "@x-scraper/graph": "workspace:*",
-    "@x-scraper/ingestor": "workspace:*",
-    "@x-scraper/llm": "workspace:*",
-    "@x-scraper/observability": "workspace:*",
-    "@x-scraper/queue": "workspace:*",
-    "@x-scraper/reconciler": "workspace:*",
-    "@x-scraper/scraper": "workspace:*",
-    "@x-scraper/vault": "workspace:*",
-    "zod": "^4.3.6"
+    "graphology": "^0.26.0",
+    "graphology-communities-louvain": "^2.0.2"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
