@@ -19,6 +19,7 @@ export default defineConfig({
       '@x-scraper/search': resolve(__dirname, 'packages/search/src/index.ts'),
       '@x-scraper/mcp-server': resolve(__dirname, 'packages/mcp-server/src/index.ts'),
       '@x-scraper/rest': resolve(__dirname, 'packages/rest/src/index.ts'),
+      '@x-scraper/digest': resolve(__dirname, 'packages/digest/src/index.ts'),
     },
   },
   test: {
