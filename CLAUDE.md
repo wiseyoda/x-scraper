@@ -19,13 +19,14 @@ packages/
   reconciler/     ER (vector + LLM judge) + ADD/UPDATE/DELETE/NONE
   ingestor/       article (Readability) + repo (GitHub) + youtube (captions)
   search/         Exa + Tavily + Brave + auto-expand with dedupe
-  cli/            xs — init / status / cost / doctor (zero-dep argv)
+  cli/            xs — init / sync / reindex / status / cost / doctor / auth / mcp / review (zero-dep argv)
   mcp-server/     xs-mcp — search_vault / read_source / queue_status
   rest/           xs-rest — Hono REST mirror with bearer auth
   digest/         Weekly digest + launchd plist builder
   observability/  pino-compatible NDJSON logger + perf timers
+  community/      Louvain detector over the Concept subgraph
 docs/             ARCHITECTURE, ROADMAP, SPIKES, CODING_STANDARDS, CODEX_REVIEW
-spikes/           1-auth, 2-bookmarks, 3-neo4j, 4-gemini, 5-claude, 6-mcp/-server, 7-readability, verify-keys
+spikes/           1-auth, 2-bookmarks, 3-neo4j, 4-gemini, 5-claude, 6-mcp/-server, 7-readability, verify-keys, verify-pdf-ingestor
 ```
 
 Read `docs/ARCHITECTURE.md` and `HANDOFF.md` first.
@@ -43,7 +44,7 @@ pnpm format          # write
 pnpm format:check    # check
 pnpm lint
 pnpm typecheck
-pnpm test            # vitest, 227 tests across all packages
+pnpm test            # vitest, 270 tests across all packages
 pnpm build           # all packages
 pnpm circular        # madge
 
@@ -56,11 +57,19 @@ pnpm spike spikes/verify-keys.ts
 # Run integration graph tests against the local Neo4j
 RUN_INTEGRATION=1 pnpm test packages/graph
 
+# Run perf bench tests (opt-in; not in CI by default)
+RUN_BENCH=1 pnpm test packages/community packages/reconciler packages/core
+
 # Local CLIs
-node packages/cli/dist/bin.js init      # creates the vault + queue
-node packages/cli/dist/bin.js doctor    # sanity-checks env + paths
-node packages/cli/dist/bin.js status    # per-status job counts
-node packages/cli/dist/bin.js cost      # USD spent on LLM/embed since 30d back
+node packages/cli/dist/bin.js init                                  # creates the vault + queue
+node packages/cli/dist/bin.js doctor                                # sanity-checks env + paths
+node packages/cli/dist/bin.js sync --urls=https://...,https://...   # ingest pipeline against curated URLs
+node packages/cli/dist/bin.js reindex --from-vault                  # rebuild graph from existing markdown
+node packages/cli/dist/bin.js status                                # per-status job counts
+node packages/cli/dist/bin.js cost                                  # USD spent on LLM/embed since 30d back
+node packages/cli/dist/bin.js auth login                            # open authenticated x.com session
+node packages/cli/dist/bin.js mcp register --client=claude          # wire xs-mcp into Claude Desktop
+node packages/cli/dist/bin.js review                                # list duplicate-name entity candidates
 
 # REST + MCP servers (need vault + queue to exist)
 node packages/rest/dist/bin.js          # bearer-protected REST on :7777
@@ -72,7 +81,7 @@ codex review --base main
 
 ## Stack (locked)
 
-TypeScript (Node 22+, ESM, pnpm 10) · Patchright (stealth Playwright) · **Neo4j Community 2026.04** (graph + native HNSW + GDS Leiden) · SQLite via better-sqlite3 (queue + cost ledger) · `gemini-embedding-2-preview` (1536 dims via Matryoshka) · Claude Sonnet 4.6 / Haiku 4.5 · `@modelcontextprotocol/sdk` · `@mozilla/readability` · Hono (REST) · Vitest + Playwright (E2E).
+TypeScript (Node 22.13+, ESM, pnpm 10) · Patchright (stealth Playwright) · **Neo4j Community 2026.04** (graph + native HNSW; community detection runs in-JS via graphology Louvain since GDS isn't installed locally) · SQLite via better-sqlite3 (queue + cost ledger) · `gemini-embedding-2-preview` (1536 dims via Matryoshka) · Claude Sonnet 4.6 / Haiku 4.5 · `@modelcontextprotocol/sdk` · `@mozilla/readability` · `pdfjs-dist` · Hono (REST) · Vitest + Playwright (E2E).
 
 ## Key constraints
 
@@ -90,3 +99,4 @@ TypeScript (Node 22+, ESM, pnpm 10) · Patchright (stealth Playwright) · **Neo4
 
 - Secrets: `~/.config/x-scraper/.env` (chmod 600). Populated for Anthropic, Gemini, OpenAI, Exa, Tavily, Brave, Neo4j.
 - macOS Darwin 25.x, Apple Silicon. Node 24, pnpm 10.28.
+- HNSW vector index `claim_embed_idx` lives at 1536 dims in production. The graph package's runtime guard refuses to bind to a drift-mismatched index — change dims by dropping the index first.

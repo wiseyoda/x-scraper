@@ -56,7 +56,7 @@ $EDITOR ~/.config/x-scraper/.env       # add ANTHROPIC_API_KEY, GEMINI_API_KEY,
 chmod 600 ~/.config/x-scraper/.env
 
 pnpm install
-pnpm typecheck && pnpm lint && pnpm test  # 227 tests across all packages
+pnpm typecheck && pnpm lint && pnpm test  # 270 tests across all packages
 pnpm build                                # builds every package
 ```
 
@@ -69,6 +69,19 @@ pnpm build                                # builds every package
 node packages/cli/dist/bin.js init
 node packages/cli/dist/bin.js doctor
 
+# Ingest a curated list of URLs end-to-end (real Neo4j + Gemini + Claude):
+node packages/cli/dist/bin.js sync --urls=https://arxiv.org/pdf/1706.03762.pdf --limit=1
+#   sync run_xxx: enqueued=1 done=1 dead=0 failed=0 cost=$0.18 duration=132s
+
+# Rebuild the graph from existing vault markdown (no re-fetch, no re-write):
+node packages/cli/dist/bin.js reindex --from-vault
+
+# Wire xs-mcp into Claude Desktop's MCP config:
+node packages/cli/dist/bin.js mcp register --client=claude
+
+# Open an authenticated x.com session (for the future bookmark-scraper path):
+node packages/cli/dist/bin.js auth login
+
 # Run the MCP server (stdio) so Claude Code / Codex / Gemini can search
 # the vault directly:
 node packages/mcp-server/dist/bin.js
@@ -78,8 +91,9 @@ XSCRAPER_REST_TOKEN=secret node packages/rest/dist/bin.js
 curl -H 'authorization: Bearer secret' 'http://127.0.0.1:7777/search?q=neo4j'
 ```
 
-`xs sync` (the actual end-to-end ingestion command) is the single remaining
-slice — see [HANDOFF.md](./HANDOFF.md) for the punch list.
+See [HANDOFF.md](./HANDOFF.md) for the deferred follow-ups (CI bench wiring,
+`xs topic detect`, slice 11 auto-expand integration, live X.com verification
+of likes/posts).
 
 ## License
 
