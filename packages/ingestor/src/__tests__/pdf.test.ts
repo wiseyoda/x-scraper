@@ -47,6 +47,20 @@ describe('extractPdfText', () => {
     expect(result.pageCount).toBe(1);
   });
 
+  it('accepts a Node Buffer (which extends Uint8Array)', async () => {
+    const buf = Buffer.from(await buildSamplePdf());
+    const result = await extractPdfText(buf, 'https://example.com/buf.pdf');
+    expect(result.body).toContain('synthetic test PDF');
+  });
+
+  it("does not detach the caller's buffer (re-usable across calls)", async () => {
+    const bytes = await buildSamplePdf();
+    await extractPdfText(bytes, 'https://example.com/once.pdf');
+    // Without the internal copy this would throw "detached ArrayBuffer".
+    const second = await extractPdfText(bytes, 'https://example.com/twice.pdf');
+    expect(second.body).toContain('synthetic test PDF');
+  });
+
   it('throws EMPTY_BODY when the PDF has too little extractable text', async () => {
     await expect(
       extractPdfText(await buildEmptyPdf(), 'https://example.com/tiny.pdf'),

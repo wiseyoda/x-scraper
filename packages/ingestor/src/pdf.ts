@@ -112,10 +112,17 @@ export const extractPdfText = async (
 ): Promise<{ title: string | null; body: string; pageCount: number }> => {
   let doc: PdfDocument | undefined;
   try {
+    // pdfjs explicitly rejects Node Buffers ("Please provide binary data as
+    // `Uint8Array`, rather than `Buffer`") even though Buffer extends
+    // Uint8Array. It also takes ownership of the input ArrayBuffer and
+    // detaches it. Copying into a fresh plain Uint8Array fixes both: the
+    // caller's buffer survives, and pdfjs sees the exact subclass it wants.
+    const data = new Uint8Array(bytes.byteLength);
+    data.set(bytes);
     // pdfjs's TS definitions for the legacy build aren't ideal under Node ESM;
     // the runtime contract (numPages, getPage, getTextContent) is what we
     // actually depend on, so we narrow with our own minimal interface above.
-    const loadingTask = getDocument({ data: bytes, useSystemFonts: false }) as unknown as {
+    const loadingTask = getDocument({ data, useSystemFonts: false }) as unknown as {
       promise: Promise<PdfDocument>;
     };
     doc = await loadingTask.promise;
