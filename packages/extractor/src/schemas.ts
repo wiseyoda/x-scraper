@@ -7,15 +7,23 @@
  * claims — the model emits what's actually in the source.
  */
 
+import type { EdgeType, EntityType } from '@x-scraper/core';
 import { z } from 'zod';
 
 import { ENTITY_TYPES_FOR_EXTRACTION, RELATIONSHIP_TYPES_FOR_EXTRACTION } from './constants.js';
 
 const SNAKE_CASE = /^[a-z][a-z0-9_]*$/;
 
+const entityEnum = z.enum(
+  ENTITY_TYPES_FOR_EXTRACTION as unknown as readonly [EntityType, ...EntityType[]],
+);
+const relationshipEnum = z.enum(
+  RELATIONSHIP_TYPES_FOR_EXTRACTION as unknown as readonly [EdgeType, ...EdgeType[]],
+);
+
 export const ExtractionEntitySchema = z.object({
   id: z.string().min(1).describe('stable slug used as the entity id everywhere it appears'),
-  type: z.enum(ENTITY_TYPES_FOR_EXTRACTION),
+  type: entityEnum,
   name: z.string().min(1),
   aliases: z.array(z.string()).default([]),
 });
@@ -34,7 +42,7 @@ export type ExtractionClaim = z.infer<typeof ExtractionClaimSchema>;
 export const ExtractionRelationshipSchema = z.object({
   from: z.string().min(1),
   to: z.string().min(1),
-  type: z.enum(RELATIONSHIP_TYPES_FOR_EXTRACTION),
+  type: relationshipEnum,
 });
 export type ExtractionRelationship = z.infer<typeof ExtractionRelationshipSchema>;
 

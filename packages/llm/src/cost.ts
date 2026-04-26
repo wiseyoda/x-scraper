@@ -2,6 +2,8 @@
  * Cost computation + ledger sink for LLM calls.
  */
 
+import type { Stage } from '@x-scraper/queue';
+
 import {
   HAIKU_CACHE_READ_FACTOR,
   HAIKU_CACHE_WRITE_SURCHARGE,
@@ -59,7 +61,7 @@ export interface LlmCostSink {
   recordCost: (input: {
     runId?: string;
     jobId?: string;
-    stage?: string;
+    stage?: Stage;
     provider: string;
     model: string;
     inputTokens?: number;

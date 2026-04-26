@@ -7,7 +7,7 @@ import { extract, ExtractorError } from '../extractor.js';
 const VALID_OUTPUT = JSON.stringify({
   entities: [
     { id: 'claude-code', type: 'Tool', name: 'Claude Code', aliases: [] },
-    { id: 'anthropic', type: 'Service', name: 'Anthropic', aliases: [] },
+    { id: 'anthropic', type: 'Person', name: 'Anthropic', aliases: [] },
   ],
   claims: [
     {

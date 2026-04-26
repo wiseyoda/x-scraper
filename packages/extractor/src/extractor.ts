@@ -10,6 +10,7 @@
  */
 
 import type { LlmProvider } from '@x-scraper/llm';
+import type { Stage } from '@x-scraper/queue';
 
 import {
   DEFAULT_MAX_REPAIR_ATTEMPTS,
@@ -33,7 +34,7 @@ export interface ExtractInput {
   cost?: {
     runId?: string;
     jobId?: string;
-    stage?: string;
+    stage?: Stage;
   };
   /** Override the repair budget (default 2). */
   maxRepairAttempts?: number;

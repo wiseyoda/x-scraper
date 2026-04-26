@@ -69,6 +69,27 @@ describe('createClaudeProvider', () => {
     ).rejects.toMatchObject({ name: 'LlmError', code: 'TRUNCATED' });
   });
 
+  it('records the truncated reply in the cost ledger before throwing', async () => {
+    const messagesCreate: MessagesCreateFn = vi.fn(() =>
+      Promise.resolve(makeReply({ stop_reason: 'max_tokens' })),
+    );
+    const recorded: Record<string, unknown>[] = [];
+    const provider = createClaudeProvider({
+      messagesCreate,
+      cost: {
+        recordCost: (input) => {
+          recorded.push(input);
+          return 'cost_id';
+        },
+      },
+    });
+    await expect(
+      provider.complete({ messages: [{ role: 'user', content: 'x' }] }),
+    ).rejects.toMatchObject({ code: 'TRUNCATED' });
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]?.outputTokens).toBe(200);
+  });
+
   it('throws CONFIG when max_tokens exceeds the hard ceiling', async () => {
     const messagesCreate: MessagesCreateFn = vi.fn(() => Promise.resolve(makeReply()));
     const provider = createClaudeProvider({ messagesCreate });

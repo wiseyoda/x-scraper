@@ -22,6 +22,7 @@
   "dependencies": {
     "@x-scraper/core": "workspace:*",
     "@x-scraper/llm": "workspace:*",
+    "@x-scraper/queue": "workspace:*",
     "zod": "^4.3.6"
   },
   "devDependencies": {

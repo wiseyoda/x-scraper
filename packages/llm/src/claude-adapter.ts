@@ -25,9 +25,10 @@ import {
 } from './types.js';
 
 /**
- * Subset of @anthropic-ai/sdk's Messages API we depend on. Defined here
- * so we don't leak the SDK type surface across our boundary and so tests
- * can stub it without importing the SDK.
+ * Subset of @anthropic-ai/sdk's Messages API we depend on. Defined as
+ * structural types so a bound `new Anthropic({apiKey}).messages.create`
+ * can be passed directly without casts: the SDK's content blocks are a
+ * superset (text + tool_use + thinking + ...), and we only read `text`.
  */
 export interface AnthropicTextBlock {
   type: 'text';
@@ -35,13 +36,14 @@ export interface AnthropicTextBlock {
   cache_control?: { type: 'ephemeral' };
 }
 
-export interface AnthropicMessageContent {
-  type: 'text';
-  text: string;
+/** A content block in the response. We only consume `type === 'text'`. */
+export interface AnthropicMessageContentBlock {
+  type: string;
+  text?: string;
 }
 
 export interface AnthropicMessageReply {
-  content: AnthropicMessageContent[];
+  content: AnthropicMessageContentBlock[];
   stop_reason: string | null;
   usage: {
     input_tokens: number;
@@ -77,7 +79,10 @@ const toUsage = (reply: AnthropicMessageReply): CompleteUsage => ({
 });
 
 const collectText = (reply: AnthropicMessageReply): string =>
-  reply.content.map((c) => c.text).join('');
+  reply.content
+    .filter((c) => c.type === 'text' && typeof c.text === 'string')
+    .map((c) => c.text ?? '')
+    .join('');
 
 export const createClaudeProvider = (config: ClaudeConfig): LlmProvider => {
   const defaultModel = config.defaultModel ?? SONNET_MODEL;
@@ -115,21 +120,8 @@ export const createClaudeProvider = (config: ClaudeConfig): LlmProvider => {
       throw new LlmError('claude messages.create failed', 'PROVIDER', { cause: err });
     }
 
-    if (reply.stop_reason === 'max_tokens') {
-      throw new LlmError(
-        `claude truncated at max_tokens=${String(maxTokens)} — bump max_tokens and retry`,
-        'TRUNCATED',
-        { stopReason: reply.stop_reason },
-      );
-    }
-
-    const text = collectText(reply);
-    if (text.length === 0) {
-      throw new LlmError('claude returned no text blocks', 'INVALID_RESPONSE', {
-        stopReason: reply.stop_reason,
-      });
-    }
-
+    // Record cost FIRST. Anthropic bills for truncated and empty replies
+    // alike — we must reflect that in the ledger before any throw path.
     const usage = toUsage(reply);
     const modelUsed = reply.model ?? model;
     const costUsd = computeCostUsd(modelUsed, usage);
@@ -146,6 +138,21 @@ export const createClaudeProvider = (config: ClaudeConfig): LlmProvider => {
         cacheReadTokens: usage.cacheReadTokens,
         cacheCreateTokens: usage.cacheCreateTokens,
         costUsd,
+      });
+    }
+
+    if (reply.stop_reason === 'max_tokens') {
+      throw new LlmError(
+        `claude truncated at max_tokens=${String(maxTokens)} — bump max_tokens and retry`,
+        'TRUNCATED',
+        { stopReason: reply.stop_reason },
+      );
+    }
+
+    const text = collectText(reply);
+    if (text.length === 0) {
+      throw new LlmError('claude returned no text blocks', 'INVALID_RESPONSE', {
+        stopReason: reply.stop_reason,
       });
     }
 

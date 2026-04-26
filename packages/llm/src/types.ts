@@ -6,6 +6,8 @@
  * `@anthropic-ai/sdk`.
  */
 
+import type { Stage } from '@x-scraper/queue';
+
 export interface CachedSystemBlock {
   /** Plain text of the cached portion (e.g. schema/system prompt). */
   text: string;
@@ -31,7 +33,7 @@ export interface CompleteRequest {
   cost?: {
     runId?: string;
     jobId?: string;
-    stage?: string;
+    stage?: Stage;
   };
 }
 
