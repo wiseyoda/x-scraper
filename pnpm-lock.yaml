@@ -188,6 +188,34 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.19.17)(jsdom@29.0.2)
 
+  packages/ingestor:
+    dependencies:
+      '@mozilla/readability':
+        specifier: ^0.6.0
+        version: 0.6.0
+      '@x-scraper/core':
+        specifier: workspace:*
+        version: link:../core
+      jsdom:
+        specifier: ^29.0.2
+        version: 29.0.2
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/jsdom':
+        specifier: ^28.0.1
+        version: 28.0.1
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.17
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.19.17)(jsdom@29.0.2)
+
   packages/llm:
     dependencies:
       '@anthropic-ai/sdk':
