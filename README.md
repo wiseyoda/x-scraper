@@ -22,7 +22,7 @@ The whole design is in [`docs/`](./docs):
 
 ## Stack
 
-TypeScript monorepo (pnpm) · Node 22+ · Patchright (stealth Playwright) · Kùzu (embedded graph DB) · SQLite (queue) · Gemini embedding-2-preview · Claude Sonnet 4.6 / Haiku 4.5 · `@modelcontextprotocol/sdk` · `@mozilla/readability` · Hono (REST) · Vitest
+TypeScript monorepo (pnpm) · Node 22+ · Patchright (stealth Playwright) · Neo4j Community 2026.04 (graph + native HNSW + GDS Leiden) · SQLite (queue) · Gemini embedding-2-preview · Claude Sonnet 4.6 / Haiku 4.5 · `@modelcontextprotocol/sdk` · `@mozilla/readability` · Hono (REST) · Vitest
 
 ## Setup (early; will change)
 
