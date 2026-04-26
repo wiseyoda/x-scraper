@@ -19,7 +19,7 @@ packages/
   reconciler/     ER (vector + LLM judge) + ADD/UPDATE/DELETE/NONE
   ingestor/       article (Readability) + repo (GitHub) + youtube (captions)
   search/         Exa + Tavily + Brave + auto-expand with dedupe
-  cli/            xs — init / sync / reindex / status / cost / doctor / auth / mcp / review (zero-dep argv)
+  cli/            xs — init / sync / reindex / status / cost / doctor / auth / bookmarks / topic / schedule / mcp / review (zero-dep argv)
   mcp-server/     xs-mcp — search_vault / read_source / queue_status
   rest/           xs-rest — Hono REST mirror with bearer auth
   digest/         Weekly digest + launchd plist builder
@@ -44,7 +44,7 @@ pnpm format          # write
 pnpm format:check    # check
 pnpm lint
 pnpm typecheck
-pnpm test            # vitest, 270 tests across all packages
+pnpm test            # vitest, 301 tests across all packages
 pnpm build           # all packages
 pnpm circular        # madge
 
@@ -68,6 +68,10 @@ node packages/cli/dist/bin.js reindex --from-vault                  # rebuild gr
 node packages/cli/dist/bin.js status                                # per-status job counts
 node packages/cli/dist/bin.js cost                                  # USD spent on LLM/embed since 30d back
 node packages/cli/dist/bin.js auth login                            # open authenticated x.com session
+node packages/cli/dist/bin.js bookmarks pull --max=200               # populate bookmark_ledger from x.com (also --source=likes|posts)
+node packages/cli/dist/bin.js bookmarks sync --order=oldest --limit=N # run pipeline against ledger rows one-at-a-time
+node packages/cli/dist/bin.js topic detect --synthesize              # Louvain communities + Sonnet titles → Topic.md
+node packages/cli/dist/bin.js schedule install --interval=3600       # launchd plist that runs xs bookmarks sync hourly
 node packages/cli/dist/bin.js mcp register --client=claude          # wire xs-mcp into Claude Desktop
 node packages/cli/dist/bin.js review                                # list duplicate-name entity candidates
 
@@ -98,5 +102,5 @@ TypeScript (Node 22.13+, ESM, pnpm 10) · Patchright (stealth Playwright) · **N
 ## Environment
 
 - Secrets: `~/.config/x-scraper/.env` (chmod 600). Populated for Anthropic, Gemini, OpenAI, Exa, Tavily, Brave, Neo4j.
-- macOS Darwin 25.x, Apple Silicon. Node 24, pnpm 10.28.
+- macOS Darwin 25.x, Apple Silicon. **Two Node binaries on this machine**: shell `node` is nvm-managed Node 24.13 (NODE_MODULE_VERSION 137); `pnpm exec node` and `/opt/homebrew/bin/node` are Homebrew Node 25.9 (141). pnpm/vitest run under Node 25, so always invoke production CLI via `/opt/homebrew/bin/node packages/cli/dist/bin.js …` to match the better-sqlite3 binary that vitest expects.
 - HNSW vector index `claim_embed_idx` lives at 1536 dims in production. The graph package's runtime guard refuses to bind to a drift-mismatched index — change dims by dropping the index first.

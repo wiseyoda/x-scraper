@@ -1,136 +1,124 @@
 # Session Handoff
 
-> Updated 2026-04-26 after a marathon session that landed durable bookmark backlog management, end-to-end live ingestion against real X.com, plus 5 deferred-backlog items (likes/posts live verify, xs topic detect, xs schedule install, soft auto-expand, RUN_GOLDEN_LIVE mode, bench CI workflow). The post-roadmap "make it work end-to-end" milestone.
+> Updated 2026-04-26 at end of session 4. PR #28 (`feat/bookmark-ledger`) is OPEN and ready for codex review + merge. Next session's work is a focused quality-upgrade pass over the live system, ranked below.
 >
-> Read this first in the next session.
+> **Read this first.** Then check `xs status` and the bookmark_ledger to confirm nothing has drifted since this snapshot.
 
 ## Current State
 
-`feat/bookmark-ledger` branch pushed to origin with 3 commits ahead of main. **xs bookmarks pull → xs bookmarks sync runs end-to-end against the live X.com profile.** 200 bookmarks pulled, 55+ synced (sync still in progress at session end, draining the remaining 145), 0 failures. Vault has grown from 52 → 530+ claims and 37 → 319+ entities. Cost so far: ~$1.84 in LLM/embed.
+Branch `feat/bookmark-ledger` pushed; **PR #28 OPEN, NOT YET MERGED**. 5 commits ahead of `main`:
 
 ```
-git log --oneline -5 feat/bookmark-ledger
+0a054f7  docs(handoff): postscript — full backlog drained + topic detect live
+8187364  docs(handoff): refresh after live ingestion + deferred backlog drain
 dc27195  fix(bookmarks): order ledger by tweet_created_at, not pull captured_at
 40044c8  feat: golden corpus, topic detect, schedule, soft auto-expand, parsing fix
 cd49741  feat(bookmarks): durable backlog with xs bookmarks pull + sync
-ac27f82  docs(handoff): refresh after backlog drain merged (#27)
 ```
 
-301 vitest tests across 45 files (3 perf-bench skipped without RUN_BENCH=1) in 17 packages. lint clean, typecheck clean.
+301 vitest tests across 45 files (3 perf-bench skipped without RUN_BENCH=1). lint clean, typecheck clean. `pnpm build` clean.
+
+**Live data state at session end:**
+- `bookmark_ledger`: 210 rows synced (200 bookmarks + 10 likes), 0 failed, 0 new
+- vault: 200 Source.md, 1500+ Claim.md, 800+ Entity.md, 6 Topic.md
+- Neo4j: 200 Source + 2400+ Claim + ~80 Concept nodes; 6500+ edges across 14 types; HNSW `claim_embed_idx` @ 1536 dims
+- cost ledger: ~$5.04 spent end-to-end
 
 ## What Was Done This Session
 
-The user's ask: ingest all bookmarks oldest-to-newest, fixing pipeline issues as we go, AND complete the deferred backlog. Did both.
-
-### Phase A — durable bookmark backlog (3 commits)
-
-| Commit  | What                                                                                                   |
-| ------- | ------------------------------------------------------------------------------------------------------ |
-| cd49741 | bookmark_ledger table (queue v2 + forward-only migration), extractTweetPayload helper, xs bookmarks pull/sync commands, 20 new tests (queue + scraper + cli) |
-| 40044c8 | xs topic detect, xs schedule install/uninstall, soft auto-expand fetch_links, golden corpus + RUN_GOLDEN_LIVE, bench CI workflow, **parsing fix** that unblocked live ingestion |
-| dc27195 | ORDER BY COALESCE(tweet_created_at, captured_at) so --order=oldest sorts by tweet age, not pull batch |
-
-### Phase B — live verification
-
-- **Auth refreshed**: `xs auth login` → `auth: PatOnTheLevel (id 18276723) via headed-login`
-- **First pull**: 50 bookmarks, all skipped — turned out parseBookmarksPage was returning Zod-stripped entries (rest_id only) so extractTweetPayload had nothing to read
-- **Parsing fix** (in 40044c8): change TimelineInstructionSchema's `entries` to `z.array(z.unknown())` and validate per-entry inside the loop, pushing the original raw entry into the BookmarkRecord
-- **Re-pull**: 200/200 bookmarks parsed cleanly into the ledger; 10/10 likes parsed too (slice 22 verified live)
-- **First sync**: 3 bookmarks → all 3 synced ($0.06, ~13s/bookmark, full pipeline including Gemini embed + Sonnet extract + reconcile + Neo4j upsert + git commit)
-- **Bigger batch**: 50 bookmarks → 50/50 synced, 0 failures, $1.39
-- **Backlog drain**: 145 bookmarks remaining at session end, sync running in background (PID-tracked elsewhere)
-
-### Live verification artifacts (current vault state)
-
-```
-~/Documents/x-scraper-vault/
-  sources/   56 .md (one per synced bookmark)
-  claims/    534 .md (LLM-extracted facts)
-  entities/  319 .md (people, tools, concepts referenced)
-```
+- Added durable bookmark backlog: `bookmark_ledger` table (queue schema v2 + forward migration), `extractTweetPayload(record)` helper, `xs bookmarks pull` and `xs bookmarks sync` commands.
+- Added 5 deferred-backlog items: `xs topic detect [--synthesize]`, `xs schedule install/uninstall` (launchd), soft auto-expand in `fetch_links` stage (logs discovered URLs), 3-fixture golden corpus + `RUN_GOLDEN_LIVE=1` mode, `.github/workflows/bench.yml` for `RUN_BENCH=1` weekly.
+- Fixed `parseBookmarksPage` / `parseUserTimelinePage` so they preserve the original raw entry object (was returning Zod-stripped entries — caused 100% skip rate against real X.com payloads).
+- Fixed `xs bookmarks pull` to NOT pass `headless: false` (was bypassing the headless cookie-reuse path and timing out for 300s).
+- Live-verified end-to-end: 210/210 synced, 0 failures, ~$5.04, ~12s/bookmark amortized.
+- `xs topic detect --synthesize` ran live and produced 6 thematic communities.
+- Verified persistence across all 4 sinks: SQLite ledger, vault markdown, vault git history (174 commits, one per sync run), Neo4j nodes/edges/HNSW.
 
 ## Key Decisions
 
-- **Pre-fetched body short-circuit re-used**: each bookmark feeds the existing `xs sync` pipeline as a SourceItem with `body=tweet text`. extract_text becomes a no-op; no separate "tweet ingestor" needed.
-- **One queue run per bookmark**: each bookmark gets its own `runId` in xs sync. Vault commits stay atomic per source. Trades a few hundred ms per bookmark (one extra commit) for clean audit logs and isolated retry semantics.
-- **Tweet-age ordering, not pull-batch ordering**: `--order=oldest` sorts by `COALESCE(tweet_created_at, captured_at)` so a Feb 2026 tweet pulled today still sorts before an Apr 2026 tweet pulled today. Existing tests stay green because their fixtures don't set tweet_created_at, and COALESCE falls back to captured_at.
-- **Soft auto-expand only for v1**: `fetch_links` stage now logs every embedded URL it sees in the body but does NOT recurse. Hard auto-expand (recursive enqueue with parent_entry_id dedupe) needs another schema column and canonicalization-vs-vault-list dedup; explicitly deferred.
-- **Skip rules for bookmarks**: tombstones (entries lacking text + author + urls) are silently skipped. The pull command logs `bookmarks.pull.skipped_unparseable` for each. Bookmarks for video-only posts get an empty-ish body but still sync — the pipeline tolerates zero claims.
-- **Two Node versions on this Mac**: `/opt/homebrew/bin/node` is 25.9.0 (NODE_MODULE_VERSION 141), nvm-managed `node` is 24.13.0 (137). `pnpm exec node` picks 25; `node` picks 24. better-sqlite3 must be rebuilt against the *Node that vitest uses* (25), not the *Node from the shell prompt* (24). The xs bin scripts MUST be invoked via `/opt/homebrew/bin/node` to load the correct binary.
-- **Golden corpus minimal**: 3 fixtures (anthropic-claude-code, neo4j-vector-index, typescript-pnpm). Stub mode runs in CI; RUN_GOLDEN_LIVE=1 hits real Sonnet for entity-recall regressions.
+- **Pre-fetched body short-circuit re-used**: `xs bookmarks sync` builds a SourceItem with `body=tweet text` from the ledger, so `extract_text` becomes a no-op. No new "tweet ingestor" needed.
+- **One queue run per bookmark**: each bookmark gets its own `runId`. Vault commits stay atomic per source. Trades a few hundred ms for clean audit logs.
+- **Tweet-age ordering**: `--order=oldest` sorts by `COALESCE(tweet_created_at, captured_at)` so a Feb 2026 tweet pulled today sorts before an Apr 2026 tweet pulled today.
+- **Soft auto-expand only for v1**: `fetch_links` logs discovered URLs but doesn't recurse. Hard auto-expand is item #4 in the upgrade list below.
 
 ## What Failed (and how it was fixed)
 
-- **`headless: false` killed the headless cookie reuse path** in xs bookmarks pull. The auth fallback then waited 300s for an interactive login that never came. Fix: don't pass headless explicitly; let auth.ts try headless first.
-- **better-sqlite3 ABI drift**: same trap as last session, BUT the rebuild needs `--target=25.9.0` to match `pnpm exec node`'s Node 25, not Node 24. Recipe in HANDOFF "Traps".
-- **All 200 bookmarks initially "skipped_unparseable"**: parseBookmarksPage was passing the Zod-stripped entry (containing only entryId + rest_id) as `BookmarkRecord.raw`. extractTweetPayload had no payload to read. Fix in parsing.ts: change `entries` to `z.array(z.unknown())` and validate per-entry inside the loop, pushing the ORIGINAL `rawEntry` into partials.
+- **All 200 live bookmarks "skipped_unparseable" on first pull**: parseBookmarksPage was returning Zod-stripped entries (rest_id only). Fixed by changing `entries: z.array(z.unknown())` and validating per-entry inside the loop, pushing the ORIGINAL `rawEntry` into partials.
+- **Auth timed out for 300s on first pull**: I'd passed `headless: false` to `runBookmarksPull`, killing the headless cookie-reuse path. Fix: omit the flag.
+- **better-sqlite3 ABI drift**: this Mac has TWO Node binaries (24.13 nvm + 25.9 Homebrew). `pnpm exec node` uses 25; nvm shell `node` uses 24. Rebuild target must match the one vitest uses (25). Recipe in `feedback_better_sqlite3_abi_drift.md`.
 - **Golden corpus directory didn't exist** despite prior HANDOFF saying it did. Created from scratch with 3 fixtures.
 
-## Package Map (unchanged: 17 packages)
+## Next Session — Quality Upgrade Pass (work all of these)
 
-New surfaces this session:
+Pat reviewed the populated graph (top entities: Claude Code 39, Claude 16, OpenClaw 16, Codex 10; top concepts: AI Agents, MCP, Vibe Coding) and asked to address every observed weakness. Ranked by impact-per-effort.
 
-| Package         | Additions                                                                                                                                                               |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `queue`         | `bookmark_ledger` table (v2 forward migration); `upsertBookmark`, `listBookmarks`, `getBookmark`, `updateBookmark`, `bookmarkStats`; `BookmarkSource`/`BookmarkStatus`/`BookmarkEntry` types |
-| `scraper`       | `extractTweetPayload(record)`, `tweetPermalink(tweetId, author)` — pulls text/author/urls/createdAt out of the BookmarkRecord raw payload                                |
-| `graph`         | `listConceptSubgraph()` returning `{nodes, edges}` of Concept-RELATED_TO-Concept edges (current only)                                                                    |
-| `cli`           | `xs bookmarks pull/sync`, `xs topic detect`, `xs schedule install/uninstall`                                                                                             |
-| `extractor`     | golden corpus (3 fixtures + stub-or-live test)                                                                                                                           |
-| `cli/sync`      | fetchLinksStage now scans body for URLs and logs them under `sync.fetch_links.discovered`                                                                                |
+### Tier 1 — fixes the data is begging for
 
-## Deferred / Backlog (smaller now)
+1. **Entity normalization is broken.** Graph has both `AI Agents` (6) AND `AI Agent` (4) as separate Concepts; `MCP` (5) AND `Model Context Protocol` (4) split; `Anthropic` exists as both Tool and Person. Reconciler's vector-similarity ER is missing trivial alias collisions. **Fix:** pre-normalize entity names before resolution (lowercase, singularize via Inflector, strip articles); add `aliases[]` lookup *before* vector search. Estimate: collapses 20–30% of duplicate Concept/Person nodes.
 
-- **Hard auto-expand**: scan body for URLs → enqueue as new bookmark_ledger rows with `parent_entry_id` for dedupe lineage. Schema bump to v3.
-- **Likes/posts sync**: 10 likes are in the ledger but the sync doesn't differentiate source. Should work as-is via `xs bookmarks sync --source=likes` — untested live.
-- **Topic detect against the live graph**: ran on stubbed graph in unit tests (5/5 pass). Live test deferred until enough Concept nodes exist to form communities (≥5 concepts per cluster).
-- **CI bench**: workflow file shipped but never triggered. First scheduled run lands Sunday 06:00 UTC.
-- **RUN_GOLDEN_LIVE=1 first run**: never executed live. Cost ~$0.05 to validate the 3 fixtures.
-- **xs schedule install live test**: writes the plist but never bootstrapped against launchd in this session.
+2. **`null` predicate count is 1002.** Cypher `MATCH (c:Claim) RETURN c.predicate, count(*)` shows 1002 claims with null predicate (~40% of the corpus). Either the upsert isn't writing `predicate` to Neo4j, or the extractor emits empty strings stored as null. Invalidates any predicate-based query. **Fix:** investigate first (is it a data-write bug or a Cypher-projection bug?). Most likely 30 minutes to a fix once root cause is found.
+
+3. **t.co-only bookmarks waste an LLM call.** ~25 bookmarks have body that's literally just `https://t.co/xyz`. Get 0 useful claims, still pay ~$0.014 in Sonnet+Gemini. **Fix:** in `runBookmarksSync` (or in the pre-flight stage), if body matches `^\s*https?://t\.co/\w+\s*$`, write a stub Source.md and skip extraction stages. Saves ~$0.40 per 200-bookmark run.
+
+### Tier 2 — extensions of what works
+
+4. **Hard auto-expand for embedded URLs.** Soft auto-expand logged 700+ URLs we didn't follow. Bookmarks DO link to substantive articles/repos/PDFs that the existing ingestors can handle. **Fix:** schema v3 adding `parent_entry_id` column; canonicalize-vs-vault-list dedupe in `fetch_links`; enqueue new ledger rows for unseen URLs; mark `source='derived'` so they're distinguishable from organic bookmarks.
+
+5. **Topic detect is starved.** 82 Concepts but only 52 RELATED_TO edges. Communities are tiny because there aren't enough edges. Root cause: the extractor emits relationships between entities but rarely between Concepts. **Fix:** post-extraction step that infers Concept-Concept edges from co-occurrence — every pair of Concepts mentioned in the same Source gets a weak `RELATED_TO` (confidence proportional to inverse Source frequency). Estimate: 5-10x edge density, much richer topics.
+
+6. **Concept embeddings, not just Claim embeddings.** Reconciler currently uses the *source* embedding as a proxy for every entity (because we only embed Claim text). That's why entity dedup is hit-or-miss. **Fix:** add a per-entity embed stage (or batch-embed all unique entity names per run); feed those to `resolveEntity`. The HNSW index already supports it via `ENTITY_VECTOR_INDEX_NAME` from constants.ts (slice 8 deferred this).
+
+### Tier 3 — usability + introspection
+
+7. **`xs trends` command.** What I hand-typed Cypher to surface (top entities, top concepts, top tools, topic clusters, predicate distribution) should be a CLI: 10 lines of Cypher + a printer. Cheap.
+
+8. **Recency weighting in topic detection.** All 200 bookmarks weighted equally now. Add edge weights based on `min(tweet_created_at, captured_at)` recency so currently-hot clusters dominate over dormant ones.
+
+9. **Author entity > byline string.** Currently `bookmark_ledger.author` is a flat string; we should write the tweet author as a Person node with `(:Source)-[:AUTHORED_BY]->(:Person {handle})`. Lets you ask "show me everything bookmarked from steipete."
+
+10. **Soft delete for ledger upsert.** Currently if X edits a tweet we keep the stale text. Add `text_hash` column; on re-pull, if hash differs, mark the old row `superseded` and insert a new one. Audit-trail-friendly.
+
+### Tier 4 — operational
+
+11. **Cost ledger needs entry_id attribution.** Records `run_id` + `job_id` but no easy join back to the ledger's `entry_id`. Add `entry_id` to `cost_ledger` (or a JOIN view).
+
+12. **Shard `vault/claims/` by id prefix.** 1500 flat files now, performance fine. At 10k it'll matter. Move to `claims/c_/c_651ef3b1.md` like git's loose-objects layout.
+
+## Deferred / Backlog (not in the upgrade list)
+
+- **Hardening of `xs schedule install`**: the plist gets written but live launchctl bootstrap was never end-to-end tested in this session.
+- **Live `RUN_GOLDEN_LIVE=1` first run**: golden corpus runs in stub mode in CI; a one-time `RUN_GOLDEN_LIVE=1` execution to validate the 3 fixtures against real Sonnet was never done. Cost ~$0.05.
+- **Likes/posts sync end-to-end**: 10 likes were pulled and synced this session, but we didn't verify the resulting Source.md content_type tagging is correct.
+- **CI bench first scheduled run**: workflow file shipped, first run lands Sunday 06:00 UTC.
 
 ## Traps for Next Session
 
-- **`/opt/homebrew/bin/node`, not `node`**: vitest and xs CLI must use the same binary or better-sqlite3 errors with NODE_MODULE_VERSION mismatch. Quick check: `pnpm exec node --version` should match `which xs` invocation.
-- **better-sqlite3 ABI rebuild target**: when a Homebrew Node update lands, `cd node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3 && rm -rf build && /opt/homebrew/bin/npx node-gyp rebuild --target=$(node --version | tr -d v)`. Confirm the binary's NODE_MODULE_VERSION via Node's load-error message.
-- **`extractTweetPayload` returns null for tombstones / non-tweet entries** — caller MUST handle (in `runBookmarksPull` the loop counts these as `skipped`).
-- **Bookmark ledger upsert is idempotent on entry_id only** — if X.com edits a tweet, we'll keep the old text. By design (the ledger is an audit trail). To re-pull a refreshed tweet, delete the ledger row first.
-- **xs sync `loadSources` is curated-only**. Bookmark sync builds the SourceItem list ahead of time and passes it in. The dispatcher can't load more sources mid-run.
-- **All prior-session traps still apply**: max_tokens 16k–32k for extraction; cost recorded BEFORE throw path; bi-temporal upsert pattern; reserved-fields-beat-caller logger spread; auth fails closed; HNSW dim drift refused at init; Neo4j vector index keyed on (label, property); pdfjs-dist needs Buffer→Uint8Array copy.
+- **Always invoke production CLI via `/opt/homebrew/bin/node`**: matches vitest's runtime (Node 25.9) and the rebuilt better-sqlite3 binary. Plain `node` is nvm Node 24 — wrong binary.
+- **PR #28 is OPEN, not merged.** Don't branch off main for next-session upgrades — branch off `feat/bookmark-ledger` (or wait for it to merge first). The bookmark_ledger schema v2 lives only on this branch until merge.
+- **Schema v3 migration must respect the v1→v2 forward migration pattern.** Bootstrap SCHEMA_SQL gets the latest shape; MIGRATIONS map handles upgrade-from-prior-version. Don't break the existing v1→v2 path.
+- **Reconciler `findClaimsForSubject` is a stub** that returns empty. Most of the upgrade work in #1 will need a real implementation — currently every claim is treated as ADD because nothing is found.
+- **Entity ID generation uses `entityId(type, name)`** which lowercases + slugifies but does NOT singularize or strip articles. Don't change this without auditing every caller; it's the natural key for the graph.
+- **Bookmark ledger's `text` column may contain a single t.co URL** for video/media bookmarks. Filter before extraction (item #3) to avoid wasted spend.
+- **All prior-session traps still apply**: max_tokens 16k–32k for extraction; cost recorded BEFORE throw path; bi-temporal upsert; reserved-fields-beat-caller; auth fails closed; HNSW dim drift refused at init; Neo4j vector index keyed on (label, property); pdfjs needs Buffer→Uint8Array copy.
 
 ## Next Steps — exactly where to pick up
 
-1. **Drain the bookmark backlog** (145 bookmarks left at session end, may be done by next read). Check `xs status` and `xs bookmarks sync` for stats. Failures should auto-retry up to maxAttempts=3.
-2. **Run `xs topic detect --synthesize`** once the graph has enough Concept nodes (the 50 synced bookmarks may already qualify; the 200-bookmark ingest definitely will). First run will write topics/<id>.md and Topic graph nodes — review them for quality.
-3. **Live-test xs schedule install** (writes a launchd plist, bootstraps it). Then verify it runs xs bookmarks sync on the next interval. Uninstall when done dogfooding.
-4. **Live-verify slice 22 likes sync**: `xs bookmarks sync --source=likes --limit=5` against the 10 likes already in the ledger.
-5. **Hard auto-expand**: schema migration v3 adding `parent_entry_id` + URL canonicalization dedupe in fetch_links. Discovered URLs become new ledger rows.
-6. **PR**: `feat/bookmark-ledger` is pushed; open the PR (3 commits, ~30 files changed). After codex review + CI green, squash-merge.
+1. **Decide PR #28 status**: get codex review (`codex review --base main`), address P1/P2 findings, merge to main. Then start the upgrade branch off the freshly-merged main.
+2. **Investigate trap #2 first** (null-predicate bug). It's the only upgrade that's actively corrupting current data. 30 min likely. Run `cat ~/Documents/x-scraper-vault/claims/$(ls ~/Documents/x-scraper-vault/claims | head -1) | head -25` to see if `predicate:` is populated in vault frontmatter — if yes, the bug is in the graph upsert; if no, it's in the extractor's output handling.
+3. **Then work upgrades #1, #3, #5, #6 in order** (entity normalization, t.co skip, concept co-occurrence edges, concept embeddings) — these compound. After each, re-run the live trends query and confirm the data is cleaner.
+4. **Items #4, #7-#12** can be done in parallel branches once the foundation is fixed.
+5. **End-of-cycle**: re-run `xs topic detect --synthesize` against the cleaned graph and compare topic quality vs. the 6 communities from this session.
 
 ## Open file paths to remember
 
-- `packages/cli/src/commands/bookmarks.ts` — pull + sync runners with full test seams
-- `packages/scraper/src/payload.ts` — extractTweetPayload + tweetPermalink
-- `packages/queue/src/schema.ts` — schema v2 + MIGRATIONS map
-- `packages/cli/src/commands/topic.ts` — topic detect with optional Sonnet synthesis
-- `packages/cli/src/commands/schedule.ts` — launchd install/uninstall
+- `packages/cli/src/commands/bookmarks.ts` — pull + sync (entry point for upgrade #3, #9, #10)
+- `packages/scraper/src/payload.ts` — `extractTweetPayload` (entry point for #9)
+- `packages/queue/src/schema.ts` — schema v2 + MIGRATIONS map (entry point for v3)
+- `packages/queue/src/queue.ts` — bookmark_ledger CRUD (entry point for #4, #10, #11)
+- `packages/reconciler/src/` — ER logic (entry point for #1)
+- `packages/cli/src/commands/sync/stages.ts` — `fetchLinksStage` + extract_facts (entry point for #4, #5, #6)
+- `packages/cli/src/commands/topic.ts` — Louvain wrapper (entry point for #5, #8)
 - `packages/extractor/src/__tests__/golden/` — 3 fixtures + stub-or-live test
-- `~/Documents/x-scraper-vault/` — git-tracked, has 56+ live-synced sources
+- `~/Documents/x-scraper-vault/` — git-tracked, has 200 live-synced sources from this session
 - `~/.config/x-scraper/queue.sqlite` — bookmark_ledger lives here alongside jobs/runs/cost_ledger
 - `spikes/inspect-bookmark.ts` — dump real bookmark raw payload for debugging schema drift
-
-## Postscript — full backlog drained + topic detect ran live
-
-Updated end of session with the rest of the work the wakeup loop completed:
-
-- **Full backlog**: all 210 ledger rows synced (200 bookmarks + 10 likes), 0 failures across the entire run, ~$5.04 total LLM/embed cost, ~12s/bookmark amortized.
-- **Vault** ended with 200 Source.md, 1500+ Claim.md, 800+ Entity.md.
-- **Neo4j** ended with 200 Source nodes, 2400+ Claim nodes, ~80 Concept nodes, plus Tool/Person/Repo/Article entities, 6500+ edges across 14 types.
-- **Topic detect ran live** against the populated graph: 82 Concept nodes, 52 RELATED_TO edges, **6 communities** found (min size 4). With `--synthesize` ($0.006 total), Sonnet titled them:
-  - Agent Memory Storage Systems (4 concepts)
-  - AI Agent Identity Security (5 concepts)
-  - AI-Era Product Roles (4 concepts)
-  - AI Memory Architecture Systems (4 concepts)
-  - AI Context Memory Management (4 concepts)
-  - (one more)
-  These are accurate thematic clusters of the bookmarks — the AI/agent-memory cluster especially is dominant in the source data, which the detector picked up.
-- **Persistence verified end-to-end** across all 4 sinks (SQLite ledger, queue jobs, vault markdown, vault git, Neo4j nodes/edges, HNSW index) before scaling and again after each batch. Median 6 claims/source, max 50, with extraction quality scaling correctly to body length.
