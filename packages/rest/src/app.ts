@@ -21,6 +21,7 @@ import {
   type ServerContext,
   ToolError,
 } from '@x-scraper/mcp-server';
+import type { Context } from 'hono';
 import { Hono } from 'hono';
 import { z } from 'zod';
 
@@ -75,8 +76,7 @@ export const buildRestApp = (config: RestAppConfig): Hono => {
 
   app.get('/health', (c) => c.json({ ok: true }));
 
-  app.post('/search', async (c) => {
-    const raw: unknown = await c.req.json().catch(() => ({}));
+  const runSearch = async (c: Context, raw: unknown): Promise<Response> => {
     const parsed = SearchBodySchema.safeParse(raw);
     if (!parsed.success) {
       return c.json(errorBody('INVALID_INPUT', parsed.error.message), HTTP_BAD_REQUEST);
@@ -94,6 +94,25 @@ export const buildRestApp = (config: RestAppConfig): Hono => {
       }
       return c.json(errorBody('INTERNAL', 'search failed'), HTTP_INTERNAL);
     }
+  };
+
+  app.post('/search', async (c) => runSearch(c, await c.req.json().catch(() => ({}))));
+
+  // GET form documented in the roadmap (`curl localhost:7777/search?q=foo`).
+  // Maps q→query, type→type, limit→limit.
+  app.get('/search', async (c) => {
+    const url = new URL(c.req.url);
+    const body: Record<string, string | number> = {};
+    const q = url.searchParams.get('q') ?? url.searchParams.get('query');
+    if (q !== null) body.query = q;
+    const type = url.searchParams.get('type');
+    if (type !== null) body.type = type;
+    const limitStr = url.searchParams.get('limit');
+    if (limitStr !== null) {
+      const n = Number(limitStr);
+      if (Number.isFinite(n)) body.limit = n;
+    }
+    return runSearch(c, body);
   });
 
   app.post('/read', async (c) => {

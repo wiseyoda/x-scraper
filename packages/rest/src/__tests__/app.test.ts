@@ -122,4 +122,23 @@ describe('buildRestApp', () => {
     expect(body.pending).toBe(0);
     expect(body.dlqCount).toBe(0);
   });
+
+  it('serves GET /search?q=... (the documented curl path)', async () => {
+    await writeSource('src_alpha0001');
+    await writeSource('src_beta00002');
+    const app = buildRestApp({ ctx: { vault, queue } });
+    const resp = await app.request('/search?q=alpha');
+    expect(resp.status).toBe(200);
+    const body = (await resp.json()) as { hits: { id: string }[] };
+    expect(body.hits.map((h) => h.id)).toEqual(['src_alpha0001']);
+  });
+
+  it('GET /search forwards type + limit params', async () => {
+    await writeSource('src_alpha0001');
+    const app = buildRestApp({ ctx: { vault, queue } });
+    const resp = await app.request('/search?type=Source&limit=10');
+    expect(resp.status).toBe(200);
+    const body = (await resp.json()) as { hits: { type: string }[] };
+    expect(body.hits[0]?.type).toBe('Source');
+  });
 });
