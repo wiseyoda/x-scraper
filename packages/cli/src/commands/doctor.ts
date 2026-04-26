@@ -88,7 +88,7 @@ const checkEnvFile = async (): Promise<Check[]> => {
     });
   } else {
     const stat = await fs.stat(ENV_FILE_PATH);
-    // eslint-disable-next-line no-bitwise
+
     if ((stat.mode & ENV_FILE_PERMS_MASK) !== 0) {
       out.push({
         name: 'env-perms',

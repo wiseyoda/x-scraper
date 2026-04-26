@@ -15,7 +15,8 @@
       "@x-scraper/llm": ["./packages/llm/src/index.ts"],
       "@x-scraper/extractor": ["./packages/extractor/src/index.ts"],
       "@x-scraper/reconciler": ["./packages/reconciler/src/index.ts"],
-      "@x-scraper/cli": ["./packages/cli/src/index.ts"]
+      "@x-scraper/cli": ["./packages/cli/src/index.ts"],
+      "@x-scraper/ingestor": ["./packages/ingestor/src/index.ts"]
     }
   },
   "include": ["packages/**/*.ts", "spikes/**/*.ts", "apps/**/*.ts", "*.config.ts"],

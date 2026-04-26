@@ -15,6 +15,7 @@ export default defineConfig({
       '@x-scraper/extractor': resolve(__dirname, 'packages/extractor/src/index.ts'),
       '@x-scraper/reconciler': resolve(__dirname, 'packages/reconciler/src/index.ts'),
       '@x-scraper/cli': resolve(__dirname, 'packages/cli/src/index.ts'),
+      '@x-scraper/ingestor': resolve(__dirname, 'packages/ingestor/src/index.ts'),
     },
   },
   test: {
