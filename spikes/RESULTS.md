@@ -81,8 +81,35 @@ Prompt-caching wired via `cache_control: { type: 'ephemeral' }` on the schema/sy
 
 Cost: ~740 input tokens + 2000 output tokens for the truncated try, ~700 + ~3500 for the successful try. Production extraction at scale should use Haiku 4.5 for the bulk path and Sonnet only for borderline / contested reconciliation.
 
-## Spike 6 — TBD
+## Spike 6 — MCP server roundtrip (PASSED 2026-04-26)
 
-## Spike 7 — TBD
+Built a minimal MCP server (`spikes/6-mcp-server.ts`) using the high-level `McpServer` API from `@modelcontextprotocol/sdk@1.29` (the older `Server` class is deprecated). One tool: `search_test`, defined with a Zod input schema that the SDK auto-converts to JSON Schema. Stdio transport.
+
+Test client (`spikes/6-mcp.ts`) spawns the server as `node --import=tsx <server>` over stdio, runs `listTools` (returns the tool with auto-generated JSON schema) and `callTool` (returns 3 hits ranked by token-match score). Both round-trip cleanly.
+
+To register with Claude Code:
+```
+claude mcp add x-scraper-spike -s local \
+  -- node --import=tsx /Users/ppatterson/Working/x-scraper/spikes/6-mcp-server.ts
+```
+Not registered as part of this spike to avoid polluting the user's config. Production package will offer `xs mcp register --client {claude,codex,gemini}`.
+
+## Spike 7 — Article extraction (PASSED 2026-04-26)
+
+Five article URLs, all extracted with non-empty content (≥ 300 chars):
+
+| URL | Path | Chars |
+|---|---|---|
+| Wikipedia: Knowledge graph | fetch | 19,470 |
+| GitHub: getzep/graphiti | fetch | 21,885 |
+| Obsidian Help home | **patchright fallback** | 1,594 |
+| LangChain blog: LangGraph | fetch | 11,129 |
+| Martin Fowler: Exploring Gen AI | fetch | 644 |
+
+**Lesson — X.com tweets are NOT articles.** Initial test included a tweet URL (`x.com/.../status/...`); Readability couldn't parse the virtualized tweet UI even via Patchright (only 224 chars of page chrome). Tweet content already comes from spike 2's GraphQL path, so production routes by host: `x.com → tweet extractor`, everything else → this article extractor. Updated `URLS` to article-only and recorded the routing rule.
+
+**Lesson — handle 404s before judging quality.** A wrong URL (Simon Willison post that didn't exist) returned 29 chars of "404: Page not found" via Patchright. Production code should distinguish "site failed" from "extraction failed" — don't retry the LLM extraction stage on a 404.
+
+`VirtualConsole` set to swallow jsdom errors (lots of CSS/script noise from real-world pages doesn't add value).
 
 ## Spike 8 — TBD
