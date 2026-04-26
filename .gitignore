@@ -30,10 +30,11 @@ pnpm-debug.log*
 .env.local
 .env.*.local
 
-# Spike scratch / fixtures that shouldn't ship
+# Spike scratch / profile data that shouldn't ship
 spikes/tmp/
 spikes/x-profile/
 spikes/auth/
+spikes/fixtures/*.raw.json
 
 # Vault & runtime artifacts (these live in ~/Documents/x-scraper-vault)
 vault/
