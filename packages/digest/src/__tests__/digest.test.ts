@@ -88,4 +88,38 @@ describe('buildDigest', () => {
     expect(artifact.body).toContain('src_new00002');
     expect(artifact.body).not.toContain('src_old00001');
   });
+
+  it('uses an exactly-7-day window (not "previous ISO week" rounding)', async () => {
+    const sunday = new Date('2026-04-26T18:00:00Z');
+    await vault.write({ frontmatter: sourceFM('src_eight000'), body: 'edge' });
+    const file = path.join(workDir, 'vault', 'sources', 'src_eight000.md');
+    const eightDaysBack = new Date(sunday.getTime() - 8 * 24 * 60 * 60 * 1_000);
+    await fs.utimes(file, eightDaysBack, eightDaysBack);
+    const artifact = await buildDigest(vault, { now: sunday });
+    expect(artifact.sourceCount).toBe(0);
+    const start = new Date(artifact.windowStart).getTime();
+    const end = new Date(artifact.windowEnd).getTime();
+    expect(end - start).toBe(7 * 24 * 60 * 60 * 1_000);
+  });
+
+  it('includes record content (not just ids) in the LLM prompt', async () => {
+    await vault.write({ frontmatter: sourceFM('src_alpha0001'), body: 'a unique sentinel body' });
+    const seen: string[] = [];
+    const llm: LlmProvider = {
+      provider: 'anthropic',
+      complete: vi.fn((req: CompleteRequest) => {
+        const last = req.messages[req.messages.length - 1];
+        if (last !== undefined) seen.push(last.content);
+        return Promise.resolve({
+          text: 'Summary',
+          modelUsed: 'claude-sonnet-4-6',
+          stopReason: 'end_turn',
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheCreateTokens: 0 },
+          costUsd: 0.0001,
+        });
+      }),
+    };
+    await buildDigest(vault, { now: NOW, llm });
+    expect(seen[0]).toContain('a unique sentinel body');
+  });
 });
