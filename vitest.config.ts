@@ -16,6 +16,7 @@ export default defineConfig({
       '@x-scraper/reconciler': resolve(__dirname, 'packages/reconciler/src/index.ts'),
       '@x-scraper/cli': resolve(__dirname, 'packages/cli/src/index.ts'),
       '@x-scraper/ingestor': resolve(__dirname, 'packages/ingestor/src/index.ts'),
+      '@x-scraper/search': resolve(__dirname, 'packages/search/src/index.ts'),
     },
   },
   test: {

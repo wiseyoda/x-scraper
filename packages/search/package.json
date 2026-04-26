@@ -1,0 +1,31 @@
+{
+  "name": "@x-scraper/search",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Search adapters (Exa / Tavily / Brave) behind a SearchProvider port + auto-expand for low-corroboration claims.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:watch": "tsc -p tsconfig.json --watch"
+  },
+  "dependencies": {
+    "@x-scraper/core": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
