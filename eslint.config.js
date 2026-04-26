@@ -53,6 +53,13 @@ export default tseslint.config(
     },
   },
   {
+    // CLI binaries print to stdout — that's their entire job.
+    files: ['packages/cli/src/bin.ts', 'packages/cli/src/commands/**/*.ts'],
+    rules: {
+      'no-console': 'off',
+    },
+  },
+  {
     files: ['**/*.js', '**/*.cjs', '**/*.mjs'],
     extends: [tseslint.configs.disableTypeChecked],
   },
