@@ -126,6 +126,17 @@ export const openAuthenticatedSession = async (options: AuthOptions): Promise<Op
   }
 
   await page.goto(X_HOME_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
+  // Wait for X's SPA to render the sidebar — the headless path also
+  // does this, but the headed-login path used to skip it and could
+  // false-fail when the React tree was still mounting.
+  await page
+    .waitForLoadState('networkidle', { timeout: NETWORK_IDLE_TIMEOUT_MS })
+    .catch(() => undefined);
+  await page
+    .waitForSelector('a[data-testid="AppTabBar_Profile_Link"]', {
+      timeout: NAV_TIMEOUT_MS,
+    })
+    .catch(() => undefined);
   const info = await collectSessionInfo(context, page);
   if (info === null) {
     await context.close();

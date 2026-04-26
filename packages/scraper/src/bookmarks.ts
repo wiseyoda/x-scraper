@@ -64,16 +64,22 @@ export const passiveCaptureBookmarks = async (
   // when the assignment happens in an async listener it can't see.
   const captured: { value: CapturedRequest | null } = { value: null };
   const target = Math.min(options.target, MAX_BOOKMARKS_PER_SESSION);
+  // Track in-flight response handlers so the caller awaits parse + capture
+  // before deciding "no capture happened" — fire-and-forget would race.
+  const pending = new Set<Promise<void>>();
 
   session.context.on('response', (resp) => {
     if (!isBookmarksResponse(resp)) return;
-    void (async () => {
+    const work = (async (): Promise<void> => {
       try {
+        // Capture URL synchronously before any await so the order-of-arrival
+        // race with the main loop's exit can't lose us a valid request.
+        const url = resp.url();
         const json: unknown = await resp.json();
         const parsed = parseBookmarksPage(json, 'bookmarks');
         records.push(...parsed.records);
         captured.value ??= {
-          url: resp.url(),
+          url,
           headers: stripHttp2PseudoHeaders(await resp.request().allHeaders()),
         };
       } catch {
@@ -81,6 +87,8 @@ export const passiveCaptureBookmarks = async (
         // partial errors we've already accounted for).
       }
     })();
+    pending.add(work);
+    void work.finally(() => pending.delete(work));
   });
 
   await page.goto(X_BOOKMARKS_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
@@ -104,6 +112,10 @@ export const passiveCaptureBookmarks = async (
     last = records.length;
   }
 
+  // Drain in-flight response handlers so we don't return before they've
+  // had a chance to populate `captured.value` and `records`.
+  await Promise.all(pending);
+
   if (captured.value === null) {
     throw new ScraperError('did not capture any Bookmarks GraphQL response', 'ENDPOINT_CHANGED');
   }
@@ -113,18 +125,19 @@ export const passiveCaptureBookmarks = async (
 interface ActiveOutcome {
   records: BookmarkRecord[];
   pages: number;
-  stoppedReason: 'cursor-exhausted' | 'max-pages' | 'rate-limited';
+  stoppedReason: 'cursor-exhausted' | 'max-pages' | 'max-records' | 'rate-limited';
 }
 
 const replayActiveBookmarks = async (
   api: APIRequestContext,
   captured: CapturedRequest,
-  options: { maxPages: number; cursorFrom: string | undefined },
+  options: { maxPages: number; maxRecords: number; cursorFrom: string | undefined },
 ): Promise<ActiveOutcome> => {
   const records: BookmarkRecord[] = [];
   let cursor = options.cursorFrom;
   let stoppedReason: ActiveOutcome['stoppedReason'] = 'max-pages';
   let backoff = RATE_LIMIT_INITIAL_BACKOFF_MS;
+  let pages = 0;
 
   for (let i = 0; i < options.maxPages; i += 1) {
     const url = buildCursorReplayUrl(captured.url, cursor);
@@ -147,6 +160,11 @@ const replayActiveBookmarks = async (
     const json: unknown = await resp.json();
     const parsed = parseBookmarksPage(json, 'bookmarks');
     records.push(...parsed.records);
+    pages += 1;
+    if (records.length >= options.maxRecords) {
+      stoppedReason = 'max-records';
+      break;
+    }
     if (parsed.bottomCursor === null) {
       stoppedReason = 'cursor-exhausted';
       break;
@@ -155,30 +173,32 @@ const replayActiveBookmarks = async (
     await sleep(ACTIVE_INTER_PAGE_DELAY_MS);
   }
 
-  return { records, pages: records.length, stoppedReason };
+  return { records: records.slice(0, options.maxRecords), pages, stoppedReason };
 };
 
 /**
  * Fetch bookmarks. Always runs a short passive capture first (cheap;
  * one GraphQL response) so we have a fresh request URL + headers, then
- * drives pagination via active replay. Returns the merged dedup'd
- * records.
+ * drives pagination via active replay. Returns dedup'd records (capped
+ * at `maxBookmarks` if provided) and the active page count.
  */
 export const fetchBookmarks = async (
   session: OpenedSession,
   options: SyncOptions = { source: 'bookmarks' },
 ): Promise<{ records: BookmarkRecord[]; pages: number }> => {
-  const target = options.maxBookmarks ?? PASSIVE_TARGET_BOOKMARKS;
-  const passive = await passiveCaptureBookmarks(session, { target });
+  const maxRecords = options.maxBookmarks ?? PASSIVE_TARGET_BOOKMARKS;
+  const passive = await passiveCaptureBookmarks(session, { target: maxRecords });
 
   const active = await replayActiveBookmarks(session.context.request, passive.captured, {
     maxPages: options.maxPages ?? ACTIVE_DEFAULT_MAX_PAGES,
+    maxRecords,
     cursorFrom: options.cursorFrom,
   });
 
   const seen = new Set<string>();
   const merged: BookmarkRecord[] = [];
   for (const r of [...passive.records, ...active.records]) {
+    if (merged.length >= maxRecords) break;
     if (seen.has(r.entryId)) continue;
     seen.add(r.entryId);
     merged.push(r);
