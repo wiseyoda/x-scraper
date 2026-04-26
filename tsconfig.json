@@ -4,7 +4,14 @@
     "noEmit": true,
     "allowImportingTsExtensions": false,
     "rootDir": ".",
-    "baseUrl": "."
+    "baseUrl": ".",
+    "paths": {
+      "@x-scraper/core": ["./packages/core/src/index.ts"],
+      "@x-scraper/vault": ["./packages/vault/src/index.ts"],
+      "@x-scraper/queue": ["./packages/queue/src/index.ts"],
+      "@x-scraper/graph": ["./packages/graph/src/index.ts"],
+      "@x-scraper/scraper": ["./packages/scraper/src/index.ts"]
+    }
   },
   "include": ["packages/**/*.ts", "spikes/**/*.ts", "apps/**/*.ts", "*.config.ts"],
   "exclude": ["node_modules", "**/dist", "**/build"]
