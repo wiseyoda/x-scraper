@@ -48,6 +48,36 @@ const BookmarksResponseSchema = z.object({
 
 export type RawBookmarksResponse = z.infer<typeof BookmarksResponseSchema>;
 
+/**
+ * Likes and own-Tweets endpoints both nest the same TimelineAddEntries
+ * shape under `data.user.result.timeline.timeline.instructions`. The
+ * outer wrapper differs only in path; the entries themselves carry the
+ * same `entryId` + `tweet_results.result.rest_id` we already parse.
+ */
+const UserTimelineResponseSchema = z.object({
+  data: z
+    .object({
+      user: z
+        .object({
+          result: z
+            .object({
+              timeline: z
+                .object({
+                  timeline: z
+                    .object({ instructions: z.array(TimelineInstructionSchema) })
+                    .partial(),
+                })
+                .partial(),
+            })
+            .partial(),
+        })
+        .partial(),
+    })
+    .partial(),
+});
+
+export type RawUserTimelineResponse = z.infer<typeof UserTimelineResponseSchema>;
+
 const TIMELINE_ADD_ENTRIES = 'TimelineAddEntries';
 const CURSOR_TYPE_BOTTOM = 'Bottom';
 const CURSOR_PREFIX = 'cursor-';
@@ -160,3 +190,52 @@ export const buildCursorReplayUrl = (capturedUrl: string, cursor: string | undef
  */
 export const stripHttp2PseudoHeaders = (headers: Record<string, string>): Record<string, string> =>
   Object.fromEntries(Object.entries(headers).filter(([k]) => !k.startsWith(':')));
+
+/**
+ * Parse a Likes or own-UserTweets GraphQL response. Same entry shape as
+ * bookmarks, different outer wrapper (under data.user.result.timeline).
+ */
+export const parseUserTimelinePage = (
+  raw: unknown,
+  source: 'likes' | 'posts',
+  capturedAt: string = new Date().toISOString(),
+): ParsedPage => {
+  const result = UserTimelineResponseSchema.safeParse(raw);
+  if (!result.success) {
+    throw new ScraperError(
+      `${source} response failed schema validation: ${result.error.issues
+        .slice(0, MAX_REPORTED_ISSUES)
+        .map((i) => `${i.path.join('.')}: ${i.message}`)
+        .join('; ')}`,
+      'PARSE',
+      result.error,
+    );
+  }
+  const instructions = result.data.data.user?.result?.timeline?.timeline?.instructions ?? [];
+  const partials: { entryId: string; tweetId: string; raw: unknown }[] = [];
+  let bottomCursor: string | null = null;
+  for (const ins of instructions) {
+    if (ins.type !== TIMELINE_ADD_ENTRIES) continue;
+    for (const entry of ins.entries ?? []) {
+      if (isCursorEntry(entry.entryId)) {
+        const content = entry.content;
+        if (content?.cursorType === CURSOR_TYPE_BOTTOM && content.value !== undefined) {
+          bottomCursor = content.value;
+        }
+        continue;
+      }
+      const tweetId = tweetIdFromEntry(entry);
+      if (tweetId === null) continue;
+      partials.push({ entryId: entry.entryId, tweetId, raw: entry });
+    }
+  }
+  const records: BookmarkRecord[] = partials.map((p) => ({
+    entryId: p.entryId,
+    tweetId: p.tweetId,
+    capturedAt,
+    cursor: bottomCursor,
+    source,
+    raw: p.raw,
+  }));
+  return { records, bottomCursor };
+};

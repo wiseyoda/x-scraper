@@ -15,19 +15,28 @@ import {
   ACTIVE_DEFAULT_MAX_PAGES,
   ACTIVE_INTER_PAGE_DELAY_MS,
   BOOKMARKS_GRAPHQL_MARKER,
+  LIKES_GRAPHQL_MARKER,
   MAX_BOOKMARKS_PER_SESSION,
   MOUSE_WHEEL_NUDGE_PX,
   NAV_TIMEOUT_MS,
   NETWORK_IDLE_TIMEOUT_MS,
   PASSIVE_TARGET_BOOKMARKS,
+  POSTS_GRAPHQL_MARKER,
   RATE_LIMIT_BACKOFF_MULTIPLIER,
   RATE_LIMIT_INITIAL_BACKOFF_MS,
   RATE_LIMIT_MAX_BACKOFF_MS,
   SCROLL_PAUSE_MS,
   SCROLL_TIMES,
   X_BOOKMARKS_URL,
+  X_LIKES_URL_TEMPLATE,
+  X_POSTS_URL_TEMPLATE,
 } from './constants.js';
-import { buildCursorReplayUrl, parseBookmarksPage, stripHttp2PseudoHeaders } from './parsing.js';
+import {
+  buildCursorReplayUrl,
+  parseBookmarksPage,
+  parseUserTimelinePage,
+  stripHttp2PseudoHeaders,
+} from './parsing.js';
 import type { BookmarkRecord, SyncOptions } from './types.js';
 import { ScraperError } from './types.js';
 
@@ -245,5 +254,141 @@ export const fetchBookmarks = async (
     records: dedupe([...passive.records, ...activeRecords]),
     pages: activePages,
     bottomCursor,
+  };
+};
+
+/**
+ * Generic passive capture for any X.com timeline endpoint. The bookmark
+ * variant is the original; likes/posts share the same scroll-and-listen
+ * pattern with different page URLs and GraphQL markers.
+ *
+ * Parser must accept the raw GraphQL response and return ParsedPage. We
+ * accept it as a parameter rather than dispatching on `source` so the
+ * caller controls which timeline schema to validate against.
+ */
+export const passiveCaptureTimeline = async (
+  session: OpenedSession,
+  options: {
+    pageUrl: string;
+    marker: string;
+    source: BookmarkRecord['source'];
+    target: number;
+    parsePage: (
+      raw: unknown,
+      source: BookmarkRecord['source'],
+    ) => {
+      records: BookmarkRecord[];
+      bottomCursor: string | null;
+    };
+  },
+): Promise<PassiveOutcome> => {
+  const page = session.page;
+  const records: BookmarkRecord[] = [];
+  const captured: { value: CapturedRequest | null } = { value: null };
+  const cursorHolder: { value: string | null } = { value: null };
+  const target = Math.min(options.target, MAX_BOOKMARKS_PER_SESSION);
+  const pending = new Set<Promise<void>>();
+  const matches = (resp: Response): boolean =>
+    resp.url().includes(options.marker) && resp.request().method() === 'GET';
+
+  session.context.on('response', (resp) => {
+    if (!matches(resp)) return;
+    const work = (async (): Promise<void> => {
+      try {
+        const url = resp.url();
+        const json: unknown = await resp.json();
+        const parsed = options.parsePage(json, options.source);
+        records.push(...parsed.records);
+        if (parsed.bottomCursor !== null) cursorHolder.value = parsed.bottomCursor;
+        captured.value ??= {
+          url,
+          headers: stripHttp2PseudoHeaders(await resp.request().allHeaders()),
+        };
+      } catch {
+        // ignore
+      }
+    })();
+    pending.add(work);
+    void work.finally(() => pending.delete(work));
+  });
+
+  await page.goto(options.pageUrl, {
+    waitUntil: 'domcontentloaded',
+    timeout: NAV_TIMEOUT_MS,
+  });
+  await page
+    .waitForLoadState('networkidle', { timeout: NETWORK_IDLE_TIMEOUT_MS })
+    .catch(() => undefined);
+
+  let last = -1;
+  for (let i = 0; i < SCROLL_TIMES && records.length < target; i += 1) {
+    await page.evaluate(() => {
+      const w = (globalThis as unknown as { window?: Window }).window;
+      const d = (globalThis as unknown as { document?: Document }).document;
+      if (w && d) w.scrollTo(0, d.documentElement.scrollHeight);
+    });
+    await page.waitForTimeout(SCROLL_PAUSE_MS);
+    if (records.length === last) {
+      await page.mouse.wheel(0, MOUSE_WHEEL_NUDGE_PX);
+      await page.waitForTimeout(SCROLL_PAUSE_MS);
+      if (records.length === last) break;
+    }
+    last = records.length;
+  }
+  await Promise.all(pending);
+
+  if (captured.value === null) {
+    throw new ScraperError(
+      `did not capture any ${options.source} GraphQL response`,
+      'ENDPOINT_CHANGED',
+    );
+  }
+  return { records, captured: captured.value, bottomCursor: cursorHolder.value };
+};
+
+/**
+ * Fetch the authenticated user's likes. Same passive-then-active replay
+ * pattern as bookmarks; the response shape is parsed via
+ * parseUserTimelinePage (data.user.result.timeline.timeline.instructions).
+ */
+export const fetchLikes = async (
+  session: OpenedSession,
+  options: { maxBookmarks?: number; maxPages?: number; cursorFrom?: string } = {},
+): Promise<{ records: BookmarkRecord[]; pages: number; bottomCursor: string | null }> => {
+  const maxRecords = options.maxBookmarks ?? PASSIVE_TARGET_BOOKMARKS;
+  const passive = await passiveCaptureTimeline(session, {
+    pageUrl: X_LIKES_URL_TEMPLATE(session.info.screenName),
+    marker: LIKES_GRAPHQL_MARKER,
+    source: 'likes',
+    target: maxRecords,
+    parsePage: (raw, source) => parseUserTimelinePage(raw, source as 'likes' | 'posts'),
+  });
+  return {
+    records: passive.records.slice(0, maxRecords),
+    pages: 0,
+    bottomCursor: passive.bottomCursor,
+  };
+};
+
+/**
+ * Fetch the authenticated user's own posts. Same pattern; the page is
+ * the user's profile and the marker is /UserTweets.
+ */
+export const fetchPosts = async (
+  session: OpenedSession,
+  options: { maxBookmarks?: number; maxPages?: number; cursorFrom?: string } = {},
+): Promise<{ records: BookmarkRecord[]; pages: number; bottomCursor: string | null }> => {
+  const maxRecords = options.maxBookmarks ?? PASSIVE_TARGET_BOOKMARKS;
+  const passive = await passiveCaptureTimeline(session, {
+    pageUrl: X_POSTS_URL_TEMPLATE(session.info.screenName),
+    marker: POSTS_GRAPHQL_MARKER,
+    source: 'posts',
+    target: maxRecords,
+    parsePage: (raw, source) => parseUserTimelinePage(raw, source as 'likes' | 'posts'),
+  });
+  return {
+    records: passive.records.slice(0, maxRecords),
+    pages: 0,
+    bottomCursor: passive.bottomCursor,
   };
 };
