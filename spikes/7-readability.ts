@@ -140,7 +140,9 @@ const main = async (): Promise<void> => {
   for (const url of URLS) {
     console.log(`extracting: ${url}`);
     const r = await extract(url);
-    console.log(`  via=${r.via} title=${(r.title ?? '').slice(0, 60)} chars=${String(r.textLength)}`);
+    console.log(
+      `  via=${r.via} title=${(r.title ?? '').slice(0, 60)} chars=${String(r.textLength)}`,
+    );
     results.push(r);
   }
 
@@ -155,12 +157,12 @@ const main = async (): Promise<void> => {
       `[${hasBody ? 'OK' : 'FAIL'}] ${r.via.padEnd(10)} ${String(r.textLength).padStart(6)} chars  ${r.url}`,
     );
   }
-  console.log(
-    `\nall URLs >= ${String(MIN_BODY_CHARS)} chars: ${allHaveContent ? 'PASS' : 'FAIL'}`,
-  );
-  console.log(`fallback exercised: ${usedFallback ? 'yes' : 'no'}`);
+  console.log(`\nall URLs >= ${String(MIN_BODY_CHARS)} chars: ${allHaveContent ? 'PASS' : 'FAIL'}`);
+  console.log(`fallback exercised: ${usedFallback ? 'PASS' : 'FAIL'}`);
 
-  const ok = allHaveContent;
+  // The Patchright fallback IS the risk this spike proves; if every URL
+  // happens to extract via plain fetch, we haven't actually exercised it.
+  const ok = allHaveContent && usedFallback;
   console.log(`\nspike 7 ${ok ? 'PASSED' : 'FAILED'}`);
   if (!ok) process.exit(1);
 };

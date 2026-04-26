@@ -24,11 +24,31 @@ interface SearchHit {
 }
 
 const FAKE_CORPUS: { id: string; title: string; body: string }[] = [
-  { id: 'doc-1', title: 'Kuzu graph database', body: 'embedded property graph with HNSW vector index' },
-  { id: 'doc-2', title: 'Patchright stealth Playwright', body: 'browser automation that evades bot detection' },
-  { id: 'doc-3', title: 'Graphiti temporal memory', body: 'bi-temporal entity reconciliation for AI agents' },
-  { id: 'doc-4', title: 'Gemini embeddings', body: 'multimodal vector embeddings with Matryoshka truncation' },
-  { id: 'doc-5', title: 'Claude extraction', body: 'structured entity and claim extraction from text' },
+  {
+    id: 'doc-1',
+    title: 'Kuzu graph database',
+    body: 'embedded property graph with HNSW vector index',
+  },
+  {
+    id: 'doc-2',
+    title: 'Patchright stealth Playwright',
+    body: 'browser automation that evades bot detection',
+  },
+  {
+    id: 'doc-3',
+    title: 'Graphiti temporal memory',
+    body: 'bi-temporal entity reconciliation for AI agents',
+  },
+  {
+    id: 'doc-4',
+    title: 'Gemini embeddings',
+    body: 'multimodal vector embeddings with Matryoshka truncation',
+  },
+  {
+    id: 'doc-5',
+    title: 'Claude extraction',
+    body: 'structured entity and claim extraction from text',
+  },
 ];
 
 const fakeSearch = (query: string, limit: number): SearchHit[] => {

@@ -58,7 +58,9 @@ const randomEmbedding = (): number[] => {
 
 const main = async (): Promise<void> => {
   cleanDb();
-  console.log(`db dir: ${DB_DIR}\nkuzu version: ${(kuzu as { VERSION?: string }).VERSION ?? 'unknown'}`);
+  console.log(
+    `db dir: ${DB_DIR}\nkuzu version: ${(kuzu as { VERSION?: string }).VERSION ?? 'unknown'}`,
+  );
 
   const db = new kuzu.Database(DB_DIR);
   const conn = new kuzu.Connection(db);
@@ -150,9 +152,7 @@ const main = async (): Promise<void> => {
   // === vector index ===
   console.log('\n=== vector index ===');
   const indexed = await time('create HNSW index on Claim.embedding', async () => {
-    await conn.query(
-      `CALL CREATE_VECTOR_INDEX('Claim', 'claim_embed_idx', 'embedding');`,
-    );
+    await conn.query(`CALL CREATE_VECTOR_INDEX('Claim', 'claim_embed_idx', 'embedding');`);
     return true;
   }).catch((err: unknown) => {
     console.log(`  failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -201,14 +201,19 @@ const main = async (): Promise<void> => {
   console.log('\n=== Spike 3 result ===');
   const vectorOk = vectorMs.every((m) => m < PER_OP_BUDGET_MS);
   const traverseOk = traverseMs < PER_OP_BUDGET_MS;
-  console.log(`vector search: ${vectorOk ? 'PASS' : 'FAIL'} (${vectorMs[0]?.toFixed(2) ?? '?'} ms)`);
+  const indexOk = indexed !== null;
+  console.log(
+    `vector search: ${vectorOk ? 'PASS' : 'FAIL'} (${vectorMs[0]?.toFixed(2) ?? '?'} ms)`,
+  );
   console.log(`2-hop traversal: ${traverseOk ? 'PASS' : 'FAIL'} (${traverseMs.toFixed(2)} ms)`);
-  console.log(`vector index used: ${indexed !== null ? 'yes' : 'NO (extension or syntax issue)'}`);
+  console.log(`HNSW vector index built: ${indexOk ? 'PASS' : 'FAIL (extension or syntax issue)'}`);
 
   await conn.close();
   await db.close();
 
-  const ok = vectorOk && traverseOk;
+  // The HNSW index is the actual risk we're proving — brute-force fallback
+  // would pass the latency budget on a 1k corpus regardless.
+  const ok = vectorOk && traverseOk && indexOk;
   console.log(`\nspike 3 ${ok ? 'PASSED' : 'FAILED'}`);
   // Force-exit to dodge a known kuzu 0.11 segfault on shutdown teardown.
   process.exit(ok ? 0 : 1);

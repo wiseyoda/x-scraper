@@ -111,7 +111,9 @@ const embedBatch = async (
   }
   const data = (await resp.json()) as EmbedReply;
   if (!Array.isArray(data.embeddings) || data.embeddings.length !== inputs.length) {
-    throw new Error(`expected ${String(inputs.length)} embeddings, got ${String(data.embeddings.length)}`);
+    throw new Error(
+      `expected ${String(inputs.length)} embeddings, got ${String(data.embeddings.length)}`,
+    );
   }
   return { embeddings: data.embeddings.map((e) => e.values), modelUsed: model };
 };
@@ -137,7 +139,9 @@ const main = async (): Promise<void> => {
   const start = performance.now();
   const { embeddings, modelUsed } = await tryEmbedWithFallback(apiKey, inputs);
   const ms = performance.now() - start;
-  console.log(`got ${String(embeddings.length)} embeddings in ${ms.toFixed(0)} ms (model=${modelUsed})`);
+  console.log(
+    `got ${String(embeddings.length)} embeddings in ${ms.toFixed(0)} ms (model=${modelUsed})`,
+  );
 
   const dims = embeddings[0]?.length ?? 0;
   console.log(`dims: ${String(dims)} (target ${String(TARGET_DIMS)})`);

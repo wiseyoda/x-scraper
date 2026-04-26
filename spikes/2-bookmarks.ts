@@ -92,7 +92,11 @@ const parseEntries = (json: BookmarksResponse): BookmarkEntry[] => {
 const capturePassive = async (
   ctx: BrowserContext,
   page: Page,
-): Promise<{ captured: CapturedRequest; entries: BookmarkEntry[]; rawPages: BookmarksResponse[] }> => {
+): Promise<{
+  captured: CapturedRequest;
+  entries: BookmarkEntry[];
+  rawPages: BookmarksResponse[];
+}> => {
   // Holder pattern keeps TS from narrowing the field to null after the
   // synchronous flow completes; the listener mutates it asynchronously.
   const captured: { value: CapturedRequest | null } = { value: null };
@@ -231,9 +235,15 @@ const main = async (): Promise<void> => {
 
     console.log('\n=== Spike 2 result ===');
     const passiveOk = passiveTweets.length >= PASSIVE_TARGET_BOOKMARKS;
-    const activeOk = activeTweets.length > 0;
-    console.log(`passive >= ${String(PASSIVE_TARGET_BOOKMARKS)} bookmarks: ${passiveOk ? 'PASS' : 'FAIL'} (got ${String(passiveTweets.length)})`);
-    console.log(`active replay returned data: ${activeOk ? 'PASS' : 'FAIL'} (got ${String(activeTweets.length)})`);
+    const activeMultiPage = active.pages.length >= ACTIVE_REPLAY_PAGES;
+    const activeMeetsTarget = activeTweets.length >= PASSIVE_TARGET_BOOKMARKS;
+    const activeOk = activeMultiPage && activeMeetsTarget;
+    console.log(
+      `passive >= ${String(PASSIVE_TARGET_BOOKMARKS)} bookmarks: ${passiveOk ? 'PASS' : 'FAIL'} (got ${String(passiveTweets.length)})`,
+    );
+    console.log(
+      `active replay >= ${String(ACTIVE_REPLAY_PAGES)} pages and >= ${String(PASSIVE_TARGET_BOOKMARKS)} entries: ${activeOk ? 'PASS' : 'FAIL'} (got ${String(active.pages.length)} pages, ${String(activeTweets.length)} entries)`,
+    );
     const ok = passiveOk && activeOk;
     console.log(`\nspike 2 ${ok ? 'PASSED' : 'FAILED'}`);
     if (!ok) process.exit(1);

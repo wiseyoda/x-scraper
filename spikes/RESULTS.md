@@ -35,6 +35,7 @@ Not a numbered spike — a sanity check on `~/.config/x-scraper/.env`. `pnpm spi
 **Production path:** active replay is the cheap default. Each page costs one GraphQL call; we don't need to render the bookmarks UI. Passive scrape stays as fallback — only triggered if X starts 401/403'ing the GraphQL endpoint.
 
 **Production code TODO:**
+
 - Discover the GraphQL `queryId` dynamically by parsing `main.<hash>.js` rather than relying on a captured URL — X rotates queryIds on frontend deploys (~weekly per twscrape's experience).
 - Add 429 handling: detect `x-rate-limit-remaining` header → backoff with jitter; on persistent 429, switch to passive scrape mode.
 - Track `cursor` per source (bookmarks/likes/posts) so incremental syncs stop at the previous run's last-seen cursor.
@@ -58,9 +59,10 @@ Not a numbered spike — a sanity check on `~/.config/x-scraper/.env`. `pnpm spi
 
 **Quirk: kuzu 0.11.3 segfaults on shutdown.** Process exits with code 139 even after `await conn.close(); await db.close()`. Worked around with `process.exit(0)`. Watch for fixes in newer 0.x releases; if it persists into the production graph package, isolate the connection lifecycle to a child process or accept the noisy exit.
 
-**Path gotcha:** Kuzu refused our pre-created directory. Fix: ensure the *parent* exists, leave the database path itself for kuzu to create.
+**Path gotcha:** Kuzu refused our pre-created directory. Fix: ensure the _parent_ exists, leave the database path itself for kuzu to create.
 
 **Schema/Cypher reference points:**
+
 - Vector index call shape: `CALL QUERY_VECTOR_INDEX('Claim', 'claim_embed_idx', $vec, $k) RETURN node.id, distance`.
 - Brute-force fallback uses `array_cosine_similarity(embedding, $vec)` — useful when the index isn't built yet.
 - Multi-statement queries return `QueryResult[]`; single statements return `QueryResult`. Spike has a `single()` helper to normalize.
@@ -88,23 +90,25 @@ Built a minimal MCP server (`spikes/6-mcp-server.ts`) using the high-level `McpS
 Test client (`spikes/6-mcp.ts`) spawns the server as `node --import=tsx <server>` over stdio, runs `listTools` (returns the tool with auto-generated JSON schema) and `callTool` (returns 3 hits ranked by token-match score). Both round-trip cleanly.
 
 To register with Claude Code:
+
 ```
 claude mcp add x-scraper-spike -s local \
   -- node --import=tsx /Users/ppatterson/Working/x-scraper/spikes/6-mcp-server.ts
 ```
+
 Not registered as part of this spike to avoid polluting the user's config. Production package will offer `xs mcp register --client {claude,codex,gemini}`.
 
 ## Spike 7 — Article extraction (PASSED 2026-04-26)
 
 Five article URLs, all extracted with non-empty content (≥ 300 chars):
 
-| URL | Path | Chars |
-|---|---|---|
-| Wikipedia: Knowledge graph | fetch | 19,470 |
-| GitHub: getzep/graphiti | fetch | 21,885 |
-| Obsidian Help home | **patchright fallback** | 1,594 |
-| LangChain blog: LangGraph | fetch | 11,129 |
-| Martin Fowler: Exploring Gen AI | fetch | 644 |
+| URL                             | Path                    | Chars  |
+| ------------------------------- | ----------------------- | ------ |
+| Wikipedia: Knowledge graph      | fetch                   | 19,470 |
+| GitHub: getzep/graphiti         | fetch                   | 21,885 |
+| Obsidian Help home              | **patchright fallback** | 1,594  |
+| LangChain blog: LangGraph       | fetch                   | 11,129 |
+| Martin Fowler: Exploring Gen AI | fetch                   | 644    |
 
 **Lesson — X.com tweets are NOT articles.** Initial test included a tweet URL (`x.com/.../status/...`); Readability couldn't parse the virtualized tweet UI even via Patchright (only 224 chars of page chrome). Tweet content already comes from spike 2's GraphQL path, so production routes by host: `x.com → tweet extractor`, everything else → this article extractor. Updated `URLS` to article-only and recorded the routing rule.
 
@@ -112,4 +116,15 @@ Five article URLs, all extracted with non-empty content (≥ 300 chars):
 
 `VirtualConsole` set to swallow jsdom errors (lots of CSS/script noise from real-world pages doesn't add value).
 
-## Spike 8 — TBD
+## Spike 8 — Codex review roundtrip (PASSED 2026-04-26)
+
+Ran `codex review --base main` against the spike branch. Codex returned **4 actionable findings** — exactly the independent oversight we want at milestones:
+
+1. **[P1] Format check fails.** Several new files weren't run through Prettier; CI would block. → Fixed by `pnpm format`.
+2. **[P2] Spike 2's active replay gate too lenient.** `activeTweets.length > 0` could pass on a single page even if cursor extraction broke. → Now requires `>= ACTIVE_REPLAY_PAGES (3)` AND `>= PASSIVE_TARGET_BOOKMARKS (50)` entries.
+3. **[P2] Spike 3 didn't gate on the vector index.** Brute-force fallback would pass the latency budget on a 1k corpus, hiding HNSW failures. → `ok` now requires `indexed !== null`.
+4. **[P2] Spike 7 didn't gate on fallback coverage.** If every URL extracted via plain fetch, the Patchright fallback path was never exercised — the spike's stated risk. → `ok` now requires `usedFallback === true`.
+
+**Process win:** codex caught 4 real issues that would have shipped otherwise. Two of them (3 and 7) were silent gaps where the gate said PASS without actually testing the integration the spike was supposed to prove. This is exactly the kind of "an independent reviewer sees what you can't" outcome the codex-review process exists for.
+
+The codex review process documented in `docs/CODEX_REVIEW.md` is now battle-tested. Production code will use the same `codex review --base main` invocation at every slice merge.
