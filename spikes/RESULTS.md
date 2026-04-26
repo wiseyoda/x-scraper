@@ -24,7 +24,23 @@ Not a numbered spike — a sanity check on `~/.config/x-scraper/.env`. `pnpm spi
 
 ---
 
-## Spike 2 — TBD
+## Spike 2 — Bookmarks pagination (PASSED 2026-04-26)
+
+**Two paths proven, both converge on 60 entries across 3 pages:**
+
+(A) **Passive capture** — opened `/i/bookmarks` headless, attached a `context.on('response')` listener that filtered on URL substring `/Bookmarks`, auto-scrolled `window.scrollTo(0, document.documentElement.scrollHeight)` with mouse-wheel nudges every 2.5s up to 20 iterations or 50 entries. Captured 3 GraphQL pages and extracted 60 tweet entries plus cursor entries.
+
+(B) **Active replay** — captured the first GraphQL request's URL (with `variables` + `features` query params) and full headers. Built a per-page request that mutates the `variables.cursor` field with the previous response's `cursorType: "Bottom"` value. Re-issued via `context.request.get(url, { headers })` (which inherits the persistent context's cookies) — drops HTTP/2 pseudo-headers (`:authority`, `:path`, etc.) before re-issuing. Got 3 pages × ~20 entries each = 60.
+
+**Production path:** active replay is the cheap default. Each page costs one GraphQL call; we don't need to render the bookmarks UI. Passive scrape stays as fallback — only triggered if X starts 401/403'ing the GraphQL endpoint.
+
+**Production code TODO:**
+- Discover the GraphQL `queryId` dynamically by parsing `main.<hash>.js` rather than relying on a captured URL — X rotates queryIds on frontend deploys (~weekly per twscrape's experience).
+- Add 429 handling: detect `x-rate-limit-remaining` header → backoff with jitter; on persistent 429, switch to passive scrape mode.
+- Track `cursor` per source (bookmarks/likes/posts) so incremental syncs stop at the previous run's last-seen cursor.
+- Validate response shape with Zod before parsing.
+
+**Fixtures:** `spikes/fixtures/*.json` are gitignored — they contain real bookmark data and the captured auth headers.
 
 ## Spike 3 — TBD
 
