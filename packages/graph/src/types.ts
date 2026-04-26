@@ -50,6 +50,7 @@ export type GraphErrorCode =
   | 'CYPHER'
   | 'SCHEMA'
   | 'INVALID_INPUT'
+  | 'DIM_MISMATCH'
   | 'NOT_FOUND'
   | 'UNKNOWN';
 

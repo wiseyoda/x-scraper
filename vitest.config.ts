@@ -25,7 +25,15 @@ export default defineConfig({
   },
   test: {
     include: ['packages/**/*.{test,spec}.ts', 'spikes/**/*.{test,spec}.ts'],
-    exclude: ['**/node_modules/**', '**/dist/**', '**/*.integration.test.ts'],
+    // Integration tests are opt-in via RUN_INTEGRATION=1 because they need
+    // live local services (Neo4j, etc). Excluding them in normal runs keeps
+    // CI green; including them when the flag is set makes
+    // `RUN_INTEGRATION=1 pnpm test packages/graph` actually run them.
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      ...(process.env.RUN_INTEGRATION === '1' ? [] : ['**/*.integration.test.ts']),
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],

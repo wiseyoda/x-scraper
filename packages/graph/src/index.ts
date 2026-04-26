@@ -17,6 +17,7 @@ export {
   buildUpsertNodeWithEmbedding,
   buildVectorIndex,
   buildVectorSearch,
+  readVectorIndexDims,
 } from './cypher.js';
 export type { Neo4jConfig } from './neo4j-store.js';
 export { createNeo4jGraph } from './neo4j-store.js';
