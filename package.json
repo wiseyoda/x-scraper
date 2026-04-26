@@ -49,8 +49,8 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "esbuild",
-      "ryugraph"
+      "better-sqlite3",
+      "esbuild"
     ]
   }
 }
