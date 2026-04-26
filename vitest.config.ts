@@ -11,6 +11,8 @@ export default defineConfig({
       '@x-scraper/graph': resolve(__dirname, 'packages/graph/src/index.ts'),
       '@x-scraper/scraper': resolve(__dirname, 'packages/scraper/src/index.ts'),
       '@x-scraper/embeddings': resolve(__dirname, 'packages/embeddings/src/index.ts'),
+      '@x-scraper/llm': resolve(__dirname, 'packages/llm/src/index.ts'),
+      '@x-scraper/extractor': resolve(__dirname, 'packages/extractor/src/index.ts'),
     },
   },
   test: {
