@@ -10,7 +10,8 @@
       "@x-scraper/vault": ["./packages/vault/src/index.ts"],
       "@x-scraper/queue": ["./packages/queue/src/index.ts"],
       "@x-scraper/graph": ["./packages/graph/src/index.ts"],
-      "@x-scraper/scraper": ["./packages/scraper/src/index.ts"]
+      "@x-scraper/scraper": ["./packages/scraper/src/index.ts"],
+      "@x-scraper/embeddings": ["./packages/embeddings/src/index.ts"]
     }
   },
   "include": ["packages/**/*.ts", "spikes/**/*.ts", "apps/**/*.ts", "*.config.ts"],
