@@ -23,11 +23,13 @@
     "@mozilla/readability": "^0.6.0",
     "@x-scraper/core": "workspace:*",
     "jsdom": "^29.0.2",
+    "pdfjs-dist": "^5.6.205",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/jsdom": "^28.0.1",
     "@types/node": "^22.0.0",
+    "pdf-lib": "^1.17.1",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
   }
