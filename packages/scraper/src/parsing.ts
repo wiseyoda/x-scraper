@@ -92,7 +92,11 @@ export const parseBookmarksPage = (
     );
   }
   const instructions = result.data.data.bookmark_timeline_v2?.timeline?.instructions ?? [];
-  const records: BookmarkRecord[] = [];
+  // First pass: walk every entry to collect tweet rows + the bottom
+  // cursor. The bottom-cursor entry typically arrives AFTER the tweet
+  // entries, so we backfill `cursor` after the loop rather than
+  // emitting null cursors for the whole page.
+  const partials: { entryId: string; tweetId: string; raw: unknown }[] = [];
   let bottomCursor: string | null = null;
 
   for (const ins of instructions) {
@@ -107,16 +111,18 @@ export const parseBookmarksPage = (
       }
       const tweetId = tweetIdFromEntry(entry);
       if (tweetId === null) continue;
-      records.push({
-        entryId: entry.entryId,
-        tweetId,
-        capturedAt,
-        cursor: bottomCursor,
-        source,
-        raw: entry,
-      });
+      partials.push({ entryId: entry.entryId, tweetId, raw: entry });
     }
   }
+
+  const records: BookmarkRecord[] = partials.map((p) => ({
+    entryId: p.entryId,
+    tweetId: p.tweetId,
+    capturedAt,
+    cursor: bottomCursor,
+    source,
+    raw: p.raw,
+  }));
 
   return { records, bottomCursor };
 };
