@@ -82,11 +82,21 @@ describe('createPdfIngestor', () => {
     expect(source.metadata.pageCount).toBe(1);
   });
 
-  it('throws UNSUPPORTED_URL for non-pdf URLs', async () => {
+  it('throws UNSUPPORTED_URL for non-http URLs', async () => {
     const ingestor = createPdfIngestor({ fetchImpl: vi.fn() });
-    await expect(ingestor.ingest('https://example.com/page.html')).rejects.toMatchObject({
+    await expect(ingestor.ingest('file:///etc/passwd.pdf')).rejects.toMatchObject({
       code: 'UNSUPPORTED_URL',
     });
+  });
+
+  it('accepts an explicitly-routed http URL with no .pdf suffix when the response is application/pdf', async () => {
+    const ingestor = createPdfIngestor({
+      fetchImpl: okPdf(await buildSamplePdf()),
+      now: () => new Date('2026-04-26T00:00:00.000Z'),
+    });
+    const source = await ingestor.ingest('https://files.example.com/download?id=42');
+    expect(source.kind).toBe('pdf');
+    expect(source.body).toContain('synthetic test PDF');
   });
 
   it('throws PROVIDER on HTTP non-2xx', async () => {

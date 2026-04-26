@@ -157,15 +157,24 @@ export const createPdfIngestor = (config: PdfConfig = {}): Ingestor => {
   const now = config.now ?? ((): Date => new Date());
   const maxPages = config.maxPages ?? DEFAULT_PDF_MAX_PAGES;
 
-  // We match on .pdf path here so the dispatcher can route .pdf URLs to us
-  // before the catch-all article ingestor. PDFs served from non-.pdf paths
-  // (e.g. CDN-hashed URLs that respond with application/pdf) still work if
-  // a caller routes them here explicitly via ingest(); they just won't be
-  // picked up by selectIngestor automatically.
+  // matches() only returns true for .pdf paths so the dispatcher routes them
+  // to us before the catch-all article ingestor. ingest() is more permissive:
+  // it accepts any http(s) URL and confirms via Content-Type sniffing, which
+  // lets callers explicitly route signed download URLs and CDN-hashed paths
+  // that don't end in .pdf but actually serve application/pdf.
   const matches = (url: string): boolean => isHttpPdfUrl(url);
 
+  const isHttpUrl = (url: string): boolean => {
+    try {
+      const parsed = new URL(url);
+      return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+    } catch {
+      return false;
+    }
+  };
+
   const ingest = async (url: string): Promise<IngestedSource> => {
-    if (!isHttpPdfUrl(url)) {
+    if (!isHttpUrl(url)) {
       throw new IngestorError(`unsupported URL: ${url}`, 'UNSUPPORTED_URL', { url });
     }
     const { bytes, contentType } = await fetchPdfBytes(url, config);
