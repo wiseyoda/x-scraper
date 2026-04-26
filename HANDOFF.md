@@ -1,6 +1,6 @@
 # Session Handoff
 
-> Updated 2026-04-26 at the end of a long session that shipped 8 PRs (Phase 0 stabilization + slices 5/6/7/14) on top of the 4 already on `main`.
+> Updated 2026-04-26 at the end of a session that shipped a further 7 PRs on top of the prior 9, taking us from 4 production packages to 14 and from 137 to 227 tests.
 > Read this first in the next session.
 
 ## Current State
@@ -8,96 +8,211 @@
 The repo is live at github.com/wiseyoda/x-scraper with `main` clean and green. Working tree is clean. No PRs are in flight.
 
 ```
-git log --oneline -10 main
-<slice-14 squash>     Slice 14: packages/cli — xs init / status / cost / doctor (#12)
-93103f3              Slice 7: packages/reconciler — entity resolution + ADD/UPDATE/DELETE/NONE (#11)
-95f4f6a              Slice 6: packages/llm + packages/extractor (Claude + versioned extraction) (#10)
-0d6e375              Slice 5: packages/embeddings (Gemini + OpenAI) (#9)
-1c18255              docs: add CLAUDE.md project guide for future sessions (#8)
-9fe3683              Slice 4: packages/graph — Neo4j adapter for the bi-temporal graph (#7)
-a36002f              Slice 3: packages/queue — durable SQLite job queue + cost ledger (#6)
-8b2f15f              Slice 2: packages/core + packages/vault (#3)
+git log --oneline -20 main
+<slice-18 squash>     Slice 18: docs + onboarding refresh (#21)
+<slice-16 squash>     Slice 16: scraper bot-mitigation primitives (#20)
+15265fe              Slice 17: packages/observability — structured logger + perf timers (#19)
+6de8a57              Slice 15: packages/digest — weekly digest + launchd plist (#18)
+7be7494              Slice 13: packages/rest — localhost REST API (Hono) (#17)
+a827e92              Slice 12: packages/mcp-server — vault search/read/status over MCP (#16)
+49fbd4a              Slice 11: packages/search — Exa / Tavily / Brave + auto-expand (#15)
+32c788b              Slice 9:  packages/ingestor — article + repo + youtube (#14)
+08dc9b2              docs: refresh HANDOFF.md (#13)
+ec3a430              Slice 14: packages/cli — xs init / status / cost / doctor (#12)
+93103f3              Slice 7:  packages/reconciler — ER + ADD/UPDATE/DELETE/NONE (#11)
+95f4f6a              Slice 6:  packages/llm + packages/extractor (#10)
+0d6e375              Slice 5:  packages/embeddings — Gemini + OpenAI (#9)
+1c18255              docs: add CLAUDE.md (#8)
+9fe3683              Slice 4:  packages/graph — Neo4j adapter (#7)
+a36002f              Slice 3:  packages/queue — durable SQLite queue + cost ledger (#6)
+8b2f15f              Slice 2:  packages/core + packages/vault (#3)
 f020ac2              fix(scraper): cursor backfill + passive resume + replay fallback (#4)
-44fa305              Slice 1: packages/scraper + Neo4j pivot (#2)
+44fa305              Slice 1:  packages/scraper + Neo4j pivot (#2)
+4a0adc4              Spikes 1-8 (#1)
+```
+
+## Package Map
+
+```
+packages/core           Zod schemas, frontmatter codec, IDs, URL canon
+packages/vault          Markdown vault, simple-git auto-commit, safeJoin
+packages/scraper        X.com auth + bookmarks fetch + bot-mitigation prims
+packages/queue          Durable SQLite job queue + cost ledger (lease-token-safe)
+packages/graph          Neo4j adapter for the bi-temporal graph
+packages/embeddings     Gemini (primary) + OpenAI (alt) behind EmbeddingProvider
+packages/llm            Claude Sonnet/Haiku behind LlmProvider with prompt caching
+packages/extractor      Versioned extraction prompts + Zod-validated output
+packages/reconciler     ER (vector + LLM judge) + ADD/UPDATE/DELETE/NONE
+packages/ingestor       article (Readability) + repo (GitHub) + youtube (captions)
+packages/search         Exa + Tavily + Brave + auto-expand with dedupe
+packages/cli            `xs` — init / status / cost / doctor (zero-dep argv)
+packages/mcp-server     `xs-mcp` — search_vault / read_source / queue_status
+packages/rest           `xs-rest` — Hono REST mirror with bearer auth
+packages/digest         Weekly digest + launchd plist builder
+packages/observability  pino-compatible NDJSON logger + perf timers
 ```
 
 ## What Was Done This Session
 
-Phase 0 stabilization (cleanup of branches Pat had stacked):
+This session continued the build that started in the prior session. Phase 0
 
-- **PR #3 (slice 2)** had failing CI because vitest resolved workspace packages through `package.json#exports` to unbuilt `dist/`. Fixed by adding `resolve.alias` to `vitest.config.ts`. Codex review then caught two real bugs in `packages/vault/src/vault.ts`: (P1) `simple-git`'s constructor throws when `baseDir` doesn't exist, blocking `init()` for a fresh vault; (P2) `init()` would auto-commit any pre-staged user records under the message `chore(vault): initial layout`. Both fixed; two regression tests added. **Merged.**
-- **Slice 3 (queue)** cherry-picked off main as a clean branch. Codex caught three P2 bugs: (1) lease-theft — old worker could clobber the new worker's attempt after `STALE_LEASE_MS`. Fixed by adding `current_attempt_id` to `jobs` and gating `completeStage`/`failStage` on it. (2) `markDone` left stale `attempts`/`next_run_at`/`last_error` from the failed-then-succeeded path. Fixed by clearing them on `markDone`. (3) `recordCost` returned a generated `cost_xxxx` id that was never persisted (schema used `INTEGER AUTOINCREMENT`). Fixed by changing `cost_ledger.ledger_id` to `TEXT PRIMARY KEY`. **Merged as PR #6.**
-- **Slice 4 (graph)** cherry-picked off main. Codex caught three real bugs: (P1) `buildTraversal` emitted invalid Cypher and used `nodes(p)` after `WITH` had dropped `p`. Replaced with a clean `UNWIND relationships(p) AS rel`. (P1) `buildUpsertEdge`'s `MERGE` matched ALL relationships of the type, so re-upsert after `invalidateEdge` reset `invalid_at` to NULL on historical edges, erasing bi-temporal history. Replaced with `OPTIONAL MATCH` on the current edge plus two `FOREACH` branches (CREATE if none exists, SET if one does). (P2) `init()` returned before the vector index was ONLINE; now blocks on `db.awaitIndexes($timeout)` (default 60s, configurable). **Merged as PR #7.**
-- **CLAUDE.md** added so future sessions get an immediate orientation. **Merged as PR #8.**
+- slices 5/6/7/14 were already merged at the start. We added 7 more slices,
+  each through the same loop: branch off main, write the package + tests,
+  gate (lint + typecheck + format + test), open PR, run codex review,
+  fix every P1/P2 finding, push, wait for CI, squash-merge.
 
-New slices:
-
-- **Slice 5: `packages/embeddings`** — `EmbeddingProvider` port + `createGeminiEmbedding` (gemini-embedding-2-preview, 1536 dims, fallback to gemini-embedding-001) + `createOpenAIEmbedding` (text-embedding-3-large, native dimensions=1536). Shared timeout-bounded fetch with retry-on-429/5xx. Optional cost attribution via `CostSink`. Codex P2 fixes: (1) HTTP timeout now armed during body read so a stalled body can't hang `resp.json()` past `timeoutMs`. (2) Gemini never mixes vectors from primary + fallback in one `embed()` call; the first batch is a probe, and fallback is used for ALL batches if it triggers. **Merged as PR #9.** 96 tests.
-- **Slice 6: `packages/llm` + `packages/extractor`** — `LlmProvider` port + Claude adapter (Sonnet 4.6 default, max_tokens 16k, prompt caching via `cache_control: ephemeral`, throws `TRUNCATED` on `stop_reason==='max_tokens'`). Versioned extraction prompt at `extraction-v1` with Zod-validated output (`entities`, `claims`, `relationships`). Codex caught: (P1) extraction enums diverged from `@x-scraper/core` (`Service`/`Other` not in `ENTITY_TYPES`, `MENTIONS`/`USES` not in `EDGE_TYPES`). Fixed by deriving the extractor enums from core, filtering out non-LLM-assignable types (`Source`, `Claim`, `SAME_AS_PROBABLE`). (P2) Truncated replies still carry billable usage; record-then-throw. (P2) `stage` field typed as `Stage` from `@x-scraper/queue` rather than bare string. (P2) Broadened `AnthropicMessageReply.content` to a structural superset so a bound `new Anthropic({...}).messages.create` is directly assignable. **Merged as PR #10.** 113 tests.
-- **Slice 7: `packages/reconciler`** — `resolveEntity` (vector-top-K via injectable `ErCandidateFinder`, deterministic threshold gate at MERGE 0.92 / SAME_AS_PROBABLE 0.82) + `reconcileClaim` (mem0-style ADD/UPDATE/DELETE/NONE on `(subject, predicate, object)`) + optional `judgeWithLlm` tie-breaker. Codex found no defects on this slice. **Merged as PR #11.** 124 tests.
-- **Slice 14: `packages/cli`** — `xs init`, `xs status`, `xs cost`, `xs doctor`. Zero-dep argv parser, pure command functions, `XSCRAPER_VAULT`/`XSCRAPER_QUEUE` overrides. Codex P2: (1) `xs status --run=ID` was scoping per-status counts but leaving `dlqCount` global. Fixed. (2) `xs doctor` returned a single WARN when `~/.config/x-scraper/.env` was missing instead of FAILing every required key. Fixed. **Merged as PR #12.** 137 tests.
+* **Slice 9 (`packages/ingestor`)**: three adapters behind one Ingestor
+  port — article (`@mozilla/readability` + jsdom), repo (GitHub REST),
+  youtube (parses ytInitialPlayerResponse, fetches the timed-text XML).
+  Codex caught (P2) parseGitHubUrl matching subresource URLs (e.g.
+  `/issues/123`) and silently rewriting them to the repo README; (P2)
+  README fetch swallowed every non-200 instead of just 404; (P2)
+  fetchJsonWithTimeout did unchecked `as T` casts. Fixed all three;
+  added `httpStatus` to IngestorError.
+* **Slice 11 (`packages/search`)**: Exa / Tavily / Brave behind a
+  SearchProvider port + autoExpandClaim with vault-aware dedup via
+  `canonicalizeUrl`. Codex clean.
+* **Slice 12 (`packages/mcp-server`)**: production MCP over stdio with
+  three tools (search_vault, read_source, queue_status). Pure handlers
+  unit-tested directly; thin MCP wiring on top. Codex clean.
+* **Slice 13 (`packages/rest`)**: Hono REST mirror of the MCP surface,
+  bearer-token-protected. Codex caught (P2) the bin only read
+  XSCRAPER_REST_TOKEN from process.env (not the .env file), silently
+  disabling auth; (P2) the documented `curl /search?q=foo` GET path
+  returned 404 because we only registered POST. Fixed both — bin now
+  parses `~/.config/x-scraper/.env` and FAILS CLOSED unless
+  XSCRAPER_REST_ALLOW_UNAUTH=1 is set.
+* **Slice 15 (`packages/digest`)**: buildDigest pure function over the
+  vault + buildLaunchdPlist for ~/Library/LaunchAgents. Codex caught
+  (P2) the digest window stretched up to 13 days when run on Sunday;
+  (P2) LLM prompt only listed ids and paths so the model couldn't
+  actually summarize. Fixed: exact 7-day window, prompt now includes
+  url/title/triple/body excerpt clamped to 800 chars per record.
+* **Slice 16 (scraper bot-mitigation)**: jitteredDelay + createSessionCap
+  - createQueryIdRegistry. Pure-ish helpers with injectable rng / now /
+    delay so unit tests skip real timers. Codex clean.
+* **Slice 17 (`packages/observability`)**: tiny zero-dep NDJSON logger
+  with bindings + child loggers + level gate; `time`/`timeSync` perf
+  helpers. Codex caught (P2) caller bindings could replace `time`/
+  `level`/`msg` in the JSON output and (P2) `options.fields` could
+  replace `label`/`ms` in timer output. Fixed both: reserved fields
+  are spread last.
+* **Slice 18 (this PR)**: refreshed HANDOFF.md and CLAUDE.md to match
+  the post-slice-17 reality.
 
 ## Key Decisions This Session
 
-- **Codex review at every slice merge.** Pattern proven: codex consistently surfaces 2–3 real bugs per slice that lint/typecheck/format wouldn't catch. The cost is one extra round-trip per slice, ~5 minutes; the value is enormous.
-- **No mixing of provider models within one embed/complete call.** Each `embed()` call returns vectors from one model; switching to fallback re-runs the first batch on fallback. Vector search would be silently broken otherwise.
-- **`current_attempt_id` lease tokens.** Lease theft via stale lease is a real risk; the queue now requires the caller's claimed attempt id to match for `completeStage`/`failStage`. Old workers throwing `STALE_LEASE` is much better than them silently overwriting the active attempt.
-- **`OPTIONAL MATCH` + two `FOREACH` branches for bi-temporal upsert.** A plain `MERGE` matches historical (invalidated) edges and resets `invalid_at`; that was destroying history. The new pattern only modifies the current edge.
-- **Extractor enums derived from `@x-scraper/core`.** Single source of truth for `ENTITY_TYPES` and `EDGE_TYPES`. Extracted entities flow straight into the graph without casts.
-- **CLI uses zero-dep argv parser.** Commander is a fine library, but the surface is small enough that owning the parser keeps `packages/cli` light. About 30 lines.
-- **`xs doctor` distinguishes required vs optional keys.** Anthropic / Gemini / Neo4j credentials are FAIL if missing; OpenAI / Exa / Tavily / Brave are WARN. A missing env file is FAIL (with one row per required key marked FAIL).
+- **Codex review remains worth it on every slice**, even the small
+  ones. Across 7 PRs codex flagged 11 real P1/P2 issues that lint /
+  typecheck / format / tests didn't catch (mostly bi-directional fields
+  trumping caller data, security defaults that fail open, semantic
+  prompt content). Cost: ~5 min per slice. Value: huge.
+- **`as T` casts at JSON boundaries are a footgun.** Codex flagged
+  this on the ingestor's GitHub helper. Now every adapter that touches
+  external JSON validates with a Zod schema before reading any field.
+- **Reserved fields beat caller data.** Both the logger (time/level/msg)
+  and the timer (label/ms/error) make the producer authoritative,
+  not the caller. Spread caller fields first, reserved fields last.
+- **Auth fails closed.** xs-rest refuses to start without
+  XSCRAPER_REST_TOKEN unless XSCRAPER_REST_ALLOW_UNAUTH=1 is explicitly
+  set. The roadmap originally documented "localhost-only by default";
+  that's a defense-in-depth measure, not a substitute for auth.
+- **GET + POST for documented paths.** The REST `/search` endpoint
+  speaks both; POST takes a JSON body, GET maps `?q=...&type=...&limit=...`.
+- **Session caps are rolling-window + injectable clock.** Real
+  rate-limit primitives must be testable without sleeping; ours are.
 
 ## What Failed (and how to repeat)
 
-- **Codex review uses a sandboxed shell that may fail to write `dist/.tsbuildinfo`.** Codex itself reports this as a `tsc` failure; ignore it — what matters is that local `pnpm typecheck` is clean. CI in GitHub Actions has full filesystem access.
-- **`pnpm install` ignores build scripts for native deps unless they're listed in `package.json` `pnpm.onlyBuiltDependencies`.** `better-sqlite3` is now in there from slice 3. If you add another native dep, list it.
-- **A naive `gh pr view --json statusCheckRollup --jq 'all(... .conclusion != "")'` jq filter can return `true` while a check is still running** (the field flips from absent to empty string momentarily). Wait on `[.statusCheckRollup[] | select(.name == "Lint, typecheck, test, build") | .conclusion] | .[0]` being non-empty AND non-null instead.
-- **`exactOptionalPropertyTypes: true` rejects `{ runId: maybeUndefined }` even when the target type is `runId?: string`.** Use conditional spreads: `...(x === undefined ? {} : { runId: x })`. Done in embeddings, llm, and extractor.
+- **Codex sandbox `tsc --noEmit` writes to dist/.tsbuildinfo and fails
+  with EPERM.** Codex itself reports this as a typecheck failure;
+  ignore it — local `pnpm typecheck` is the source of truth and CI
+  runs in a writable workspace.
+- **Hono Context type can't be expressed with
+  `Parameters<Parameters<typeof app.post>[1]>[0]`.** Use `import type
+{ Context } from 'hono'` and annotate explicitly.
+- **`exactOptionalPropertyTypes: true`** continues to reject the
+  `{ runId: maybeUndefined }` pattern. Use conditional spreads
+  consistently across packages.
 
 ## Deferred / Backlog
 
-- **Slice 8: community detection + topic notes.** Leiden via Neo4j GDS over the Concept/Topic subgraph. Periodic recluster + topic.md regen via Sonnet synthesis. Cross-topic `RELATED_TO` edges.
-- **Slice 9: `packages/ingestor`** for article (`@mozilla/readability` + Patchright fallback), GitHub repo (`octokit` + shallow clone), YouTube transcript (`youtube-transcript` + `yt-dlp` fallback), and PDF (`pdfjs-dist`). All become `Source` records. The ingestor port should mirror `EmbeddingProvider`/`LlmProvider` so adapters can be swapped per source kind.
-- **Slice 10: scraper extension** for `likes` and `posts` (currently bookmarks-only). Extends `packages/scraper` with new GraphQL endpoints + replay paths.
-- **Slice 11: `packages/search`.** Exa/Tavily/Brave adapters behind a `SearchProvider` port. Auto-expand: when a high-signal claim has low corroboration, fan out to one or more search providers and enqueue the discovered URLs as new `Source` jobs.
-- **Slice 12: `packages/mcp-server`** — production MCP server using `@modelcontextprotocol/sdk`. Tools: `search`, `read`, `capture_url`, `summarize_topic`. Resources for vault docs. Pat will need an `xs mcp register --client {claude,codex,gemini}` command at the CLI level.
-- **Slice 13: `packages/rest`** — Hono REST API mirroring the MCP surface. Bearer token from `~/.config/x-scraper/.env`, localhost-only by default.
-- **Slice 14 follow-ups:** `xs sync` (the actual end-to-end command — needs slices 9 + 10 + 11), `xs reindex --from-vault` (rebuild the graph from markdown), `xs review` (interactive merge-decision queue), `xs auth login` (cookie-import + Patchright-fallback flow from spike 1), `xs mcp register`. The current CLI lays the surface but doesn't wire the orchestration yet.
-- **Slice 15: digests + launchd.** Weekly DIGEST.md emitted by the reconciler; `xs schedule install` writes a launchd plist for hourly sync.
-- **Slice 16: bot-mitigation hardening.** Jittered cadence, session caps, queryId hot-reload, GraphQL→scrape fallback path tested under simulated 429.
-- **Slice 17: observability + perf.** pino logger, OTel traces, ink/blessed TUI for `xs status`, perf regression gate in CI.
-- **Slice 18: docs + onboarding.** README screencast, install steps, troubleshooting matrix, prompt-versioning convention finalized.
-- **Golden corpus** for the extractor (10 hand-picked source markdowns + expected extraction JSON). Currently the extractor tests use synthesized JSON inline.
-- **Cookie-import auth path** (Chrome/Arc keychain extraction) deferred from spike 1.
-- **HNSW dimension production check.** `packages/graph/src/constants.ts` defaults to 1536 (matches our Gemini Matryoshka pick). The integration test uses 16 dims. Production must use 1536. There is no runtime guard yet.
+- **Slice 8: community detection + topic notes.** Leiden via Neo4j
+  GDS over the Concept/Topic subgraph, periodic recluster, topic.md
+  regen via Sonnet synthesis, cross-topic RELATED_TO edges.
+- **Slice 10: scraper extension for likes + own posts.** Currently
+  bookmarks-only. Needs the matching X.com GraphQL endpoints + parser.
+- **PDF ingestor.** Article/repo/youtube shipped in slice 9; PDF
+  was deferred. The `Ingestor` port already accommodates it.
+- **Wire `xs sync`.** The CLI exposes init/status/cost/doctor; the
+  full orchestration (fetch → embed → extract → reconcile → write_vault
+  → update_graph) needs a CLI command that pulls the queue, dispatches
+  to ingestors by source kind, and invokes the LLM/embedding adapters.
+  This is the single highest-value follow-up.
+- **`xs reindex --from-vault`** to rebuild the graph from markdown.
+- **`xs review` interactive merge-decision queue** (per the roadmap).
+- **`xs auth login`** wiring the spike-1 cookie-import + Patchright
+  fallback into the CLI.
+- **`xs mcp register --client {claude,codex,gemini}`** that writes the
+  appropriate MCP server config block.
+- **xs status TUI.** Currently plain text. Roadmap calls for ink/blessed.
+- **Perf regression gate in CI.** Roadmap calls for a 5%-degradation
+  fail on hot paths (vector search, traversal, reconcile).
+- **Golden corpus** for the extractor (10 hand-picked source markdowns
+  - expected extraction JSON). Currently extractor tests use
+    synthesized JSON inline.
+- **HNSW dimension production check.** `packages/graph/src/constants.ts`
+  defaults to 1536 (Gemini Matryoshka). Integration tests use 16 dims.
+  No runtime guard yet.
 
 ## Traps for Next Session
 
-- **Branch off main AFTER the prior slice merges.** No stacking. Codified in `feedback_branch_strategy.md` memory.
-- **Run `codex review --base main`** on every slice PR before merge. P1/P2 findings block. The pattern in this session: after the initial PR, codex finds 2–3 issues, you fix, re-push, CI goes green, merge.
-- **Always check `stop_reason`** on Anthropic replies. The `LlmProvider` port already throws `TRUNCATED` on `stop_reason === 'max_tokens'` — don't swallow it.
-- **`max_tokens` 16k–32k for extraction.** Default is 16k; bump to 32k for long sources. Truncation drops claims silently.
-- **Cost is recorded BEFORE any throw path** in the LLM adapter. If you add new error paths, record cost first.
-- **Vector search expects a single embedding space per result set.** Gemini fallback re-runs the first batch on fallback rather than mixing models. Don't undo this.
-- **Bi-temporal upsert: `OPTIONAL MATCH ... WHERE invalid_at IS NULL` then two FOREACH branches.** A plain `MERGE` will match historical edges and clobber `invalid_at`. Don't shortcut this.
-- **`pnpm.onlyBuiltDependencies` is unreliable.** Even after listing a native dep, pnpm sometimes ignores its install script. Workaround documented in slice 3 (use `npx prebuild-install` from inside the package's `node_modules`).
-- **Neo4j tests need a running daemon.** `brew services start neo4j` before any spike 3 or `RUN_INTEGRATION=1 pnpm test packages/graph`.
-- **Spike fixtures are gitignored.** Real auth headers + bookmark data live under `spikes/fixtures/*`; scrubbed golden fixtures will live under `golden-corpus/` (created in slice 9).
+- **Branch off main AFTER the prior slice merges.** No stacking.
+- **Run `codex review --base main`** on every slice PR before merge.
+  The pattern this session: file PR, codex finds 0–3 P1/P2 issues, fix,
+  re-push, CI green, merge.
+- **Always check `stop_reason`** on Anthropic replies. The LlmProvider
+  port already throws TRUNCATED on `stop_reason === 'max_tokens'`.
+- **`max_tokens` 16k–32k for extraction.** Default is 16k.
+- **Cost is recorded BEFORE any throw path.** If you add new error
+  paths in the LLM adapter, record cost first.
+- **Vector search expects a single embedding space per result set.**
+  Gemini fallback re-runs the first batch on fallback; don't undo.
+- \*\*Bi-temporal upsert: `OPTIONAL MATCH ... WHERE invalid_at IS NULL`
+  - two FOREACH branches.\*\* A plain MERGE will clobber history.
+- **All provider JSON gets Zod-validated at the boundary.** No `as T`.
+- **Reserved fields beat caller data** in the logger and the timer.
+  When you add new fields to either, double-check the spread order.
+- **Neo4j tests need a running daemon.** `brew services start neo4j`.
+- **`pnpm.onlyBuiltDependencies` is unreliable.** Workaround documented
+  in slice 3.
 
 ## Next Steps
 
-The next high-value slice is **slice 9 (`packages/ingestor`)** — without an ingestor, `xs sync` can't actually fetch anything. Implementation order inside slice 9: article first (Readability, easiest), then GitHub repo (octokit), then YouTube (`youtube-transcript`), then PDF (`pdfjs-dist`). Each adapter implements the same `Ingestor` port so the queue can dispatch by source kind.
+The repo now has every component the architecture needs: data layer
+(vault, queue, graph), provider adapters (embeddings, llm), pipeline
+modules (extractor, reconciler, ingestor, search), surfaces (cli,
+mcp-server, rest), supporting (digest, observability), and the original
+scraper. The single remaining pre-1.0 item that ties it all together is
+**`xs sync`** — wire the queue stages (fetch_links → extract_text →
+embed_source → extract_facts → resolve_ents → reconcile → write_vault
+→ update_graph) into a runnable CLI command. With slice 17's logger
+attached at every stage and slice 16's session cap on the scraper, the
+orchestration should be small.
 
-Once slice 9 is in, **wire the orchestration into `xs sync`**: read seeds from `packages/scraper`, enqueue → claim → fetch → embed → extract → reconcile → write_vault → update_graph. That unlocks the first end-to-end demo. Codex review the orchestration file specifically for race conditions on stage transitions.
+After that:
 
-After that, **slice 12 (MCP server)** gives Claude Code a way to query the vault directly, which is the highest-value surface for daily use. Slice 13 (REST) and 14-followups (other CLI commands) are nice-to-haves on top.
+1. Slice 8 (communities) once we have real ingested data to cluster.
+2. Slice 10 (likes/posts) — minor scraper extension.
+3. PDF ingestor follow-up.
+4. Golden corpus + perf regression gate (CI hygiene).
 
 Open file paths to remember:
 
-- `docs/ARCHITECTURE.md` — full design including the Kùzu→RyuGraph→Neo4j pivot history
-- `docs/ROADMAP.md` — slice plan (slices 8–18 listed)
-- `docs/CODING_STANDARDS.md` — including the LLM defaults Pat called out
-- `docs/CODEX_REVIEW.md` — review process and severity levels
-- `~/.config/x-scraper/.env` — all six API keys (chmod 600)
+- `docs/ARCHITECTURE.md` — full design + Kùzu→Neo4j pivot history
+- `docs/ROADMAP.md` — original slice plan
+- `docs/CODING_STANDARDS.md` — including the LLM defaults
+- `docs/CODEX_REVIEW.md` — review process
+- `~/.config/x-scraper/.env` — six API keys (chmod 600)
 - `~/Documents/x-scraper-vault/` — created when you run `xs init`
 - `~/.config/x-scraper/queue.sqlite` — created when you run `xs init`
