@@ -10,6 +10,7 @@ import { contentHash, entityId } from '@x-scraper/core';
 import { extract } from '@x-scraper/extractor';
 import { ingest } from '@x-scraper/ingestor';
 import type { Job, Stage } from '@x-scraper/queue';
+import type { ExistingClaim } from '@x-scraper/reconciler';
 import { reconcileClaim, resolveEntity } from '@x-scraper/reconciler';
 
 import type { JobContext, SourceItem, SyncDeps, SyncOptions } from './types.js';
@@ -267,27 +268,42 @@ export const updateGraphStage = async (deps: SyncDeps, ctx: JobContext): Promise
     if (decision === undefined) continue;
     const claimGraphId = entityId('Claim', `${claim.subject}|${claim.predicate}|${claim.object}`);
 
+    // For UPDATE/DELETE we need to invalidate the existing claim's edge to
+    // ITS original source, not to the current source. Look up the existing
+    // claim from the same per-subject lookup the reconcile stage used.
+    const findExistingFor = async (existingId: string): Promise<ExistingClaim | null> => {
+      const existing = await deps.claimFinder.findClaimsForSubject(claim.subject);
+      return existing.find((c) => c.id === existingId) ?? null;
+    };
+
     if (decision.action === 'DELETE' && decision.existingId !== null) {
-      await deps.graph.invalidateEdge(
-        decision.existingId,
-        ctx.source.sourceId,
-        'EXTRACTED_FROM',
-        now,
-      );
+      const existing = await findExistingFor(decision.existingId);
+      if (existing !== null) {
+        await deps.graph.invalidateEdge(
+          decision.existingId,
+          existing.sourceId,
+          'EXTRACTED_FROM',
+          now,
+        );
+      }
       continue;
     }
 
     if (decision.action === 'NONE') continue;
 
     if (decision.action === 'UPDATE' && decision.existingId !== null) {
-      // Invalidate the prior current edge from the superseded claim to its
-      // source. The new claim edge is created below.
-      await deps.graph.invalidateEdge(
-        decision.existingId,
-        ctx.source.sourceId,
-        'EXTRACTED_FROM',
-        now,
-      );
+      // Invalidate the prior current edge from the superseded claim to ITS
+      // source (not the new source — the old claim's provenance is what
+      // we're invalidating). The new claim edge is created below.
+      const existing = await findExistingFor(decision.existingId);
+      if (existing !== null) {
+        await deps.graph.invalidateEdge(
+          decision.existingId,
+          existing.sourceId,
+          'EXTRACTED_FROM',
+          now,
+        );
+      }
     }
 
     if (ctx.embedding === null) {

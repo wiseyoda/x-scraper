@@ -21,6 +21,7 @@ const existing = (overrides: Partial<ExistingClaim> = {}): ExistingClaim => ({
   object: 'native HNSW',
   validAt: '2026-04-01T00:00:00.000Z',
   invalidAt: null,
+  sourceId: 'src_old',
   ...overrides,
 });
 

@@ -338,6 +338,7 @@ describe('runSync', () => {
       object: 'kuzu_team',
       validAt: '2026-01-01T00:00:00.000Z',
       invalidAt: null,
+      sourceId: 'src_prior',
     };
     const claimFinder: ClaimFinder = {
       findClaimsForSubject: (subject) => Promise.resolve(subject === 'kuzu' ? [existing] : []),

@@ -10,6 +10,7 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export type McpClient = 'claude' | 'codex' | 'gemini';
 
@@ -75,13 +76,28 @@ const readJsonOrEmpty = async (file: string): Promise<Record<string, unknown>> =
   }
 };
 
+/**
+ * Resolve the path to the bundled xs-mcp bin relative to THIS module's
+ * file location, not the caller's cwd. Without this, running
+ * `xs mcp register` from anywhere other than the repo root would write
+ * a config pointing at a non-existent server binary.
+ */
+const resolveDefaultMcpBin = (): string => {
+  // This file lives at .../packages/cli/{src or dist}/commands/mcp-register.ts
+  // The mcp-server bin is at .../packages/mcp-server/dist/bin.js. Walk up
+  // 3 levels to packages/, then into mcp-server/dist/bin.js.
+  const here = fileURLToPath(import.meta.url);
+  const packagesDir = path.resolve(path.dirname(here), '..', '..', '..');
+  return path.join(packagesDir, 'mcp-server', 'dist', 'bin.js');
+};
+
 export const runMcpRegister = async (
   client: McpClient,
   options: { binPath?: string; serverName?: string } = {},
 ): Promise<RegisterResult> => {
-  // Default to the workspace-shipped xs-mcp bin. Callers can override for
-  // a globally-installed copy or a dev-mode one.
-  const binPath = options.binPath ?? path.resolve('packages', 'mcp-server', 'dist', 'bin.js');
+  // Default to the workspace-shipped xs-mcp bin, resolved relative to
+  // this module's file path so the resolved path is independent of cwd.
+  const binPath = options.binPath ?? resolveDefaultMcpBin();
   const serverName = options.serverName ?? 'xs-scraper';
   const target = pathFor(client);
   await fs.mkdir(path.dirname(target.file), { recursive: true });
