@@ -10,6 +10,7 @@ export default defineConfig({
       '@x-scraper/queue': resolve(__dirname, 'packages/queue/src/index.ts'),
       '@x-scraper/graph': resolve(__dirname, 'packages/graph/src/index.ts'),
       '@x-scraper/scraper': resolve(__dirname, 'packages/scraper/src/index.ts'),
+      '@x-scraper/embeddings': resolve(__dirname, 'packages/embeddings/src/index.ts'),
     },
   },
   test: {
