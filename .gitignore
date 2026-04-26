@@ -38,8 +38,9 @@ spikes/x-profile/
 spikes/auth/
 spikes/fixtures/
 
-# Vault & runtime artifacts (these live in ~/Documents/x-scraper-vault)
-vault/
+# Vault & runtime artifacts (the actual user vault lives in ~/Documents/x-scraper-vault).
+# Rooted at repo top so it does not catch packages/vault/.
+/vault/
 *.kuzu/
 *.sqlite
 *.sqlite-journal
