@@ -124,4 +124,32 @@ describe('createGeminiEmbedding', () => {
     const provider = createGeminiEmbedding({ apiKey: 'fake' });
     expect(provider.dims).toBe(TARGET_DIMS);
   });
+
+  it('never mixes vectors from primary and fallback models in one call', async () => {
+    // First batch fails primary → switch to fallback for ALL batches
+    // (including a re-run of the first). All vectors must come back tagged
+    // with the fallback model.
+    let call = 0;
+    const fetchImpl = vi.fn((url: string) => {
+      call += 1;
+      const isFallback = url.includes('gemini-embedding-001');
+      if (call === 1 && !isFallback) {
+        return Promise.resolve(new Response('boom', { status: 500 }));
+      }
+      return Promise.resolve(buildResponse([[0.1, 0.2, 0.3, 0.4]]));
+    });
+    const provider = createGeminiEmbedding({
+      apiKey: 'fake',
+      dims: TEST_DIMS,
+      batchSize: 1,
+      fetchImpl,
+      sleep: () => Promise.resolve(),
+      maxRetries: 0,
+    });
+    const result = await provider.embed(['a', 'b', 'c']);
+    expect(result.modelUsed).toContain('gemini-embedding-001');
+    expect(result.vectors).toHaveLength(3);
+    // Three batches × one call each, plus one failed primary probe = 4 calls.
+    expect(fetchImpl.mock.calls.length).toBe(4);
+  });
 });

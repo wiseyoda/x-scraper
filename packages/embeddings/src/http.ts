@@ -62,8 +62,8 @@ export const fetchJsonWithRetry = async <T>(
     try {
       resp = await fetchImpl(url, { ...init, signal: controller.signal });
     } catch (err) {
-      lastError = err;
       clearTimeout(timer);
+      lastError = err;
       const isAbort = err instanceof Error && err.name === 'AbortError';
       if (attempt === maxRetries) {
         throw new EmbeddingError(
@@ -76,21 +76,45 @@ export const fetchJsonWithRetry = async <T>(
       await sleep(delay);
       continue;
     }
-    clearTimeout(timer);
 
-    if (resp.ok) {
-      return (await resp.json()) as T;
-    }
-
-    if (!isRetryableStatus(resp.status) || attempt === maxRetries) {
-      const text = await resp.text().catch(() => '<no body>');
-      throw new EmbeddingError(
-        `provider returned HTTP ${String(resp.status)}: ${text.slice(0, 300)}`,
-        resp.status === HTTP_TOO_MANY ? 'RATE_LIMIT' : 'PROVIDER',
-        {
-          httpStatus: resp.status,
-        },
-      );
+    // Keep the abort timer armed while reading the body — a server can send
+    // headers and then stall the body indefinitely. Only clear after the
+    // body is fully consumed (or the read fails).
+    try {
+      if (resp.ok) {
+        const parsed = (await resp.json()) as T;
+        clearTimeout(timer);
+        return parsed;
+      }
+      if (!isRetryableStatus(resp.status) || attempt === maxRetries) {
+        const text = await resp.text().catch(() => '<no body>');
+        clearTimeout(timer);
+        throw new EmbeddingError(
+          `provider returned HTTP ${String(resp.status)}: ${text.slice(0, 300)}`,
+          resp.status === HTTP_TOO_MANY ? 'RATE_LIMIT' : 'PROVIDER',
+          { httpStatus: resp.status },
+        );
+      }
+      // Drain the body before retry so we don't leak the connection.
+      await resp.text().catch(() => '');
+      clearTimeout(timer);
+    } catch (err) {
+      clearTimeout(timer);
+      if (err instanceof EmbeddingError) throw err;
+      const isAbort = err instanceof Error && err.name === 'AbortError';
+      if (attempt === maxRetries) {
+        throw new EmbeddingError(
+          isAbort
+            ? `embedding response body timed out after ${String(timeoutMs)}ms`
+            : 'response body read failed',
+          isAbort ? 'TIMEOUT' : 'UNKNOWN',
+          { cause: err },
+        );
+      }
+      lastError = err;
+      const delay = Math.min(initialBackoffMs * Math.pow(backoffMultiplier, attempt), maxBackoffMs);
+      await sleep(delay);
+      continue;
     }
 
     lastError = new Error(`HTTP ${String(resp.status)}`);

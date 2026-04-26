@@ -104,21 +104,36 @@ export const createGeminiEmbedding = (config: GeminiConfig): EmbeddingProvider =
       return { vectors: [], modelUsed: primary, costUsd: 0, inputTokens: 0 };
     }
     const batches = chunk(texts, batchSize);
-    const vectors: number[][] = [];
+
+    // Vector search expects a single embedding space per result set, so we
+    // never mix models within one embed() call. Probe the FIRST batch on
+    // primary; if that fails, run ALL batches (including the first) on
+    // fallback. Subsequent-batch failures on primary throw — they cannot
+    // silently flip mid-call.
     let modelUsed = primary;
-    for (const batch of batches) {
-      let batchVectors: number[][];
-      try {
-        batchVectors = await callGemini(primary, config.apiKey, batch, dims, config);
-      } catch (err) {
-        if (fallback === null) throw err;
-        if (!(err instanceof EmbeddingError)) throw err;
-        // Only fall back on provider/server errors, not on our config errors.
-        if (err.code === 'CONFIG' || err.code === 'DIMS_MISMATCH') throw err;
-        batchVectors = await callGemini(fallback, config.apiKey, batch, dims, config);
-        modelUsed = fallback;
-      }
-      vectors.push(...batchVectors);
+    const vectors: number[][] = [];
+    const firstBatch = batches[0];
+    if (firstBatch === undefined) {
+      return { vectors: [], modelUsed: primary, costUsd: 0, inputTokens: 0 };
+    }
+    try {
+      const probe = await callGemini(primary, config.apiKey, firstBatch, dims, config);
+      vectors.push(...probe);
+    } catch (err) {
+      if (fallback === null) throw err;
+      if (!(err instanceof EmbeddingError)) throw err;
+      if (err.code === 'CONFIG' || err.code === 'DIMS_MISMATCH') throw err;
+      // Switch the whole call to fallback. Re-run the first batch first.
+      modelUsed = fallback;
+      vectors.length = 0;
+      const refirst = await callGemini(fallback, config.apiKey, firstBatch, dims, config);
+      vectors.push(...refirst);
+    }
+    for (let i = 1; i < batches.length; i += 1) {
+      const batch = batches[i];
+      if (batch === undefined) continue;
+      const out = await callGemini(modelUsed, config.apiKey, batch, dims, config);
+      vectors.push(...out);
     }
     const inputTokens = estimateInputTokens(texts);
     const costUsd = estimateGeminiCostUsd(inputTokens);
