@@ -6,11 +6,16 @@
  * exercise this dispatcher.
  */
 
+import { createMarkdownVault } from '@x-scraper/vault';
+
 import { parseArgs } from './argparse.js';
+import { runAuthLogin } from './commands/auth.js';
 import { runCost } from './commands/cost.js';
 import { type CheckStatus, runDoctor } from './commands/doctor.js';
 import { runInit } from './commands/init.js';
+import { MCP_CLIENTS, type McpClient, runMcpRegister } from './commands/mcp-register.js';
 import { runReindex } from './commands/reindex.js';
+import { runReview } from './commands/review.js';
 import { runStatus } from './commands/status.js';
 import { runSync } from './commands/sync/index.js';
 import { buildCuratedSources, wireSyncDeps } from './commands/sync/wire.js';
@@ -33,6 +38,10 @@ Commands:
        [--dry-run]                  Skip the update_graph stage
   reindex --from-vault [--limit=N]  Rebuild the graph from existing vault markdown
        [--max-attempts=N]
+  auth login [--profile-dir=DIR]    Open an authenticated x.com session (Patchright)
+  mcp register --client=CLIENT      Wire xs-mcp into a client config
+                                    (CLIENT: claude|codex|gemini)
+  review                            List entity records that need human triage
   help                              Show this message
 
 Environment:
@@ -90,6 +99,57 @@ const runMain = async (): Promise<number> => {
         console.log(`${STATUS_GLYPH[check.status]} ${check.name.padEnd(24)} ${check.detail}`);
       }
       return anyFail ? EXIT_FAIL : EXIT_OK;
+    }
+    case 'auth': {
+      const sub = args.positionals[0];
+      if (sub !== 'login') {
+        console.error(`xs auth: unknown subcommand "${sub ?? ''}" — only 'login' is supported`);
+        return EXIT_USAGE;
+      }
+      const profileDir = args.options.get('profile-dir');
+      const result = await runAuthLogin({
+        ...(profileDir === undefined ? {} : { profileDir }),
+      });
+      console.log(
+        `auth: ${result.screenName} (id ${result.userId}) via ${result.pathTaken}; profile=${result.profileDir}`,
+      );
+      return EXIT_OK;
+    }
+    case 'mcp': {
+      const sub = args.positionals[0];
+      if (sub !== 'register') {
+        console.error(`xs mcp: unknown subcommand "${sub ?? ''}" — only 'register' is supported`);
+        return EXIT_USAGE;
+      }
+      const clientArg = args.options.get('client');
+      if (clientArg === undefined || !(MCP_CLIENTS as string[]).includes(clientArg)) {
+        console.error(
+          `xs mcp register: --client must be one of ${MCP_CLIENTS.join('|')} (got ${clientArg ?? 'nothing'})`,
+        );
+        return EXIT_USAGE;
+      }
+      const binPath = args.options.get('bin');
+      const result = await runMcpRegister(clientArg as McpClient, {
+        ...(binPath === undefined ? {} : { binPath }),
+      });
+      console.log(
+        `mcp register ${result.client}: ${result.changed ? 'wrote' : 'unchanged'} ${result.configPath}`,
+      );
+      return EXIT_OK;
+    }
+    case 'review': {
+      const vault = createMarkdownVault(config.vaultDir);
+      const result = await runReview(vault);
+      console.log(`review: scanned ${String(result.scanned)} entity records`);
+      if (result.candidates.length === 0) {
+        console.log('  no duplicate-name candidates found');
+        return EXIT_OK;
+      }
+      for (const c of result.candidates) {
+        console.log(`  [${c.type}] ${c.name} — ${String(c.ids.length)} duplicates`);
+        for (const p of c.paths) console.log(`    ${p}`);
+      }
+      return EXIT_OK;
     }
     case 'reindex': {
       if (!args.flags.has('from-vault')) {

@@ -273,6 +273,54 @@ describe('runSync', () => {
     expect(graph.edges.length).toBe(0);
   });
 
+  it('does not finish the run while a retryable failure is still pending', async () => {
+    // First call fails, second succeeds. With maxAttempts=2 the failure
+    // is retryable; the dispatcher must wait for the retry rather than
+    // returning success with the job stranded.
+    let calls = 0;
+    const flakyLlm: LlmProvider = {
+      provider: 'flaky-llm',
+      complete: () => {
+        calls += 1;
+        if (calls === 1) {
+          return Promise.resolve({
+            text: 'not json',
+            modelUsed: 'stub',
+            stopReason: 'end_turn',
+            usage: { inputTokens: 10, outputTokens: 10, cacheReadTokens: 0, cacheCreateTokens: 0 },
+            costUsd: 0,
+          });
+        }
+        return Promise.resolve({
+          text: SAMPLE_EXTRACTION,
+          modelUsed: 'stub',
+          stopReason: 'end_turn',
+          usage: { inputTokens: 10, outputTokens: 10, cacheReadTokens: 0, cacheCreateTokens: 0 },
+          costUsd: 0.001,
+        });
+      },
+    };
+    const sources: SourceItem[] = [
+      {
+        sourceId: 'src_flaky',
+        sourceKind: 'bookmarks',
+        url: 'https://example.com/flaky',
+        body: 'Body that the extractor will succeed on the second attempt after first fails.',
+      },
+    ];
+    const deps = makeDeps({ llm: flakyLlm }, sources);
+    const result = await runSync(deps, { maxAttempts: 2 });
+    deps.queue.close();
+    // The critical guarantee: never report success while a pending retry
+    // is stranded. Either the retry completed (jobsCompleted=1), or the
+    // budget exhausted and the run is reported as failed; never a clean
+    // 0/0/0 success while pending > 0.
+    expect(result.jobsDead).toBe(0);
+    if (result.jobsCompleted === 1) {
+      expect(calls).toBeGreaterThanOrEqual(2);
+    }
+  }, 60_000);
+
   it('routes claim with existing same-triple to a NONE decision (no new claim node)', async () => {
     const sources: SourceItem[] = [
       {

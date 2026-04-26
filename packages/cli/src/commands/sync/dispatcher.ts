@@ -33,10 +33,13 @@ import type {
 
 const DEFAULT_LIMIT = 50;
 const SYNC_RUN_COMMIT_MSG = 'chore(vault): xs sync run';
+const RETRY_POLL_FALLBACK_MS = 5_000;
+const RETRY_TOTAL_BUDGET_MS = 10 * 60 * 1_000;
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 const errorCodeOf = (err: unknown): string => {
   if (err !== null && typeof err === 'object' && 'code' in err) {
-    const code = (err).code;
+    const code = err.code;
     if (typeof code === 'string') return code;
   }
   return 'UNKNOWN';
@@ -71,13 +74,33 @@ export const runSync = async (deps: SyncDeps, options: SyncOptions = {}): Promis
   runLog.info('sync.enqueued', { count: enqueueable.length });
 
   // 2) Process loop. Run-scoped claim filter prevents the dispatcher from
-  // incidentally leasing stale jobs from a prior run.
+  // incidentally leasing stale jobs from a prior run. When claimNext
+  // returns null we check for jobs still pending-with-backoff (failStage
+  // sets next_run_at to a future time on retryable failures) and sleep
+  // until they're ready, up to a total budget. Without this, a transient
+  // failure would strand the job in pending forever — the next sync uses
+  // a different runId so the runId-scoped claim never picks it up again.
   const jobOutcomes: JobOutcome[] = [];
   let claimed = 0;
   const HARD_CAP = enqueueable.length * (options.maxAttempts ?? 3) + 10;
+  let waitedMs = 0;
   while (claimed < HARD_CAP) {
-    const job = deps.queue.claimNext({ runId });
-    if (job === null) break;
+    let job = deps.queue.claimNext({ runId });
+    if (job === null) {
+      const nextRetryAt = soonestPendingNextRunAt(deps, runId);
+      if (nextRetryAt === null) break;
+      const waitMs = Math.max(0, nextRetryAt - Date.now());
+      const sleepMs = Math.min(waitMs + 100, RETRY_POLL_FALLBACK_MS);
+      if (waitedMs + sleepMs > RETRY_TOTAL_BUDGET_MS) {
+        runLog.warn('sync.retry_budget_exhausted', { waitedMs });
+        break;
+      }
+      runLog.info('sync.waiting_for_retry', { sleepMs, waitedMs });
+      await sleep(sleepMs);
+      waitedMs += sleepMs;
+      job = deps.queue.claimNext({ runId });
+      if (job === null) continue;
+    }
     claimed += 1;
     const source = sourceById.get(job.sourceId);
     if (source === undefined) {
@@ -138,6 +161,21 @@ export const runSync = async (deps: SyncDeps, options: SyncOptions = {}): Promis
     durationMs,
     jobs: jobOutcomes,
   };
+};
+
+/**
+ * Find the earliest nextRunAt across all pending jobs in this run, in ms.
+ * Returns null when no pending jobs exist (the loop is genuinely done).
+ */
+const soonestPendingNextRunAt = (deps: SyncDeps, runId: string): number | null => {
+  const pending = deps.queue.listJobs({ runId, status: 'pending' });
+  if (pending.length === 0) return null;
+  let earliest = Number.POSITIVE_INFINITY;
+  for (const job of pending) {
+    const at = job.nextRunAt === null ? Date.now() : Date.parse(job.nextRunAt);
+    if (at < earliest) earliest = at;
+  }
+  return earliest === Number.POSITIVE_INFINITY ? null : earliest;
 };
 
 const stagesToRun = (_options: SyncOptions): Stage[] => {

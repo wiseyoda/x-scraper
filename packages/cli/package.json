@@ -33,6 +33,7 @@
     "@x-scraper/observability": "workspace:*",
     "@x-scraper/queue": "workspace:*",
     "@x-scraper/reconciler": "workspace:*",
+    "@x-scraper/scraper": "workspace:*",
     "@x-scraper/vault": "workspace:*",
     "zod": "^4.3.6"
   },

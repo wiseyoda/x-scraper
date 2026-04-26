@@ -18,6 +18,7 @@
     { "path": "../observability" },
     { "path": "../queue" },
     { "path": "../reconciler" },
+    { "path": "../scraper" },
     { "path": "../vault" }
   ]
 }

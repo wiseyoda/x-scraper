@@ -113,6 +113,9 @@ importers:
       '@x-scraper/reconciler':
         specifier: workspace:*
         version: link:../reconciler
+      '@x-scraper/scraper':
+        specifier: workspace:*
+        version: link:../scraper
       '@x-scraper/vault':
         specifier: workspace:*
         version: link:../vault
