@@ -17,7 +17,8 @@
       "@x-scraper/reconciler": ["./packages/reconciler/src/index.ts"],
       "@x-scraper/cli": ["./packages/cli/src/index.ts"],
       "@x-scraper/ingestor": ["./packages/ingestor/src/index.ts"],
-      "@x-scraper/search": ["./packages/search/src/index.ts"]
+      "@x-scraper/search": ["./packages/search/src/index.ts"],
+      "@x-scraper/mcp-server": ["./packages/mcp-server/src/index.ts"]
     }
   },
   "include": ["packages/**/*.ts", "spikes/**/*.ts", "apps/**/*.ts", "*.config.ts"],

@@ -241,6 +241,34 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.19.17)(jsdom@29.0.2)
 
+  packages/mcp-server:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.3.6)
+      '@x-scraper/core':
+        specifier: workspace:*
+        version: link:../core
+      '@x-scraper/queue':
+        specifier: workspace:*
+        version: link:../queue
+      '@x-scraper/vault':
+        specifier: workspace:*
+        version: link:../vault
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.17
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.19.17)(jsdom@29.0.2)
+
   packages/queue:
     dependencies:
       '@x-scraper/core':
