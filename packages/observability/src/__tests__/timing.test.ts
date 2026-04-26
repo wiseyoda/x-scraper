@@ -33,6 +33,17 @@ describe('time', () => {
     expect(record?.level).toBe('warn');
     expect(record?.bindings.error).toBe('boom');
   });
+
+  it('reserved measurement fields beat user-supplied options.fields', async () => {
+    const sink = vi.fn();
+    const log = createLogger({ sink });
+    await time(log, 'real-label', () => Promise.resolve('ok'), {
+      fields: { label: 'spoofed', ms: 9999 },
+    });
+    const record = (sink.mock.calls[0]?.[0] ?? null) as LogRecord | null;
+    expect(record?.bindings.label).toBe('real-label');
+    expect(record?.bindings.ms).not.toBe(9999);
+  });
 });
 
 describe('timeSync', () => {

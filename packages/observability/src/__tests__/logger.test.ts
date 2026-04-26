@@ -43,4 +43,22 @@ describe('createLogger', () => {
     const record = (sink.mock.calls[0]?.[0] ?? null) as LogRecord | null;
     expect(record?.bindings.stage).toBe('embed');
   });
+
+  it('jsonLineSink keeps reserved fields authoritative against bindings', async () => {
+    const written: string[] = [];
+    const { jsonLineSink } = await import('../logger.js');
+    const sink = jsonLineSink((line) => {
+      written.push(line);
+    });
+    const log = createLogger({
+      now: fixedNow,
+      sink,
+      bindings: { time: 'BAD', level: 'BAD', msg: 'BAD' },
+    });
+    log.info('actual', { time: 'BAD', level: 'BAD', msg: 'BAD' });
+    const parsed = JSON.parse(written[0] ?? '{}') as Record<string, unknown>;
+    expect(parsed.level).toBe('info');
+    expect(parsed.msg).toBe('actual');
+    expect(parsed.time).toBe('2026-04-26T18:00:00.000Z');
+  });
 });

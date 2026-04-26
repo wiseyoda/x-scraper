@@ -52,7 +52,15 @@ export interface LoggerOptions {
 
 export const jsonLineSink = (write: (line: string) => void): Sink => {
   return (record) => {
-    const merged = { time: record.time, level: record.level, msg: record.msg, ...record.bindings };
+    // Reserved fields (time, level, msg) MUST stay authoritative; spread
+    // caller bindings first so a stray `level: 'error'` on the bindings
+    // can't replace the actual log level.
+    const merged = {
+      ...record.bindings,
+      time: record.time,
+      level: record.level,
+      msg: record.msg,
+    };
     write(`${JSON.stringify(merged)}\n`);
   };
 };

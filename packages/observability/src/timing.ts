@@ -32,15 +32,17 @@ export const time = async <T>(
     const ms = Number((performance.now() - start).toFixed(FRACTIONAL_DIGITS));
     const level =
       options.debugBelowMs !== undefined && ms < options.debugBelowMs ? 'debug' : 'info';
-    logger.emit(level, 'duration', { label, ms, ...options.fields });
+    // Reserved measurement fields (label, ms) come AFTER caller-supplied
+    // options.fields so a stray { ms: 0 } can't replace the real timing.
+    logger.emit(level, 'duration', { ...options.fields, label, ms });
     return result;
   } catch (err) {
     const ms = Number((performance.now() - start).toFixed(FRACTIONAL_DIGITS));
     logger.warn('duration_failed', {
+      ...options.fields,
       label,
       ms,
       error: err instanceof Error ? err.message : String(err),
-      ...options.fields,
     });
     throw err;
   }
@@ -58,15 +60,17 @@ export const timeSync = <T>(
     const ms = Number((performance.now() - start).toFixed(FRACTIONAL_DIGITS));
     const level =
       options.debugBelowMs !== undefined && ms < options.debugBelowMs ? 'debug' : 'info';
-    logger.emit(level, 'duration', { label, ms, ...options.fields });
+    // Reserved measurement fields (label, ms) come AFTER caller-supplied
+    // options.fields so a stray { ms: 0 } can't replace the real timing.
+    logger.emit(level, 'duration', { ...options.fields, label, ms });
     return result;
   } catch (err) {
     const ms = Number((performance.now() - start).toFixed(FRACTIONAL_DIGITS));
     logger.warn('duration_failed', {
+      ...options.fields,
       label,
       ms,
       error: err instanceof Error ? err.message : String(err),
-      ...options.fields,
     });
     throw err;
   }
