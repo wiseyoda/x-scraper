@@ -27,7 +27,13 @@ export const RATE_LIMIT_BACKOFF_MULTIPLIER = 2;
 export const X_HOME_URL = 'https://x.com/home';
 export const X_BOOKMARKS_URL = 'https://x.com/i/bookmarks';
 export const X_LOGIN_URL = 'https://x.com/i/flow/login';
+export const X_LIKES_URL_TEMPLATE = (screenName: string): string =>
+  `https://x.com/${encodeURIComponent(screenName)}/likes`;
+export const X_POSTS_URL_TEMPLATE = (screenName: string): string =>
+  `https://x.com/${encodeURIComponent(screenName)}`;
 export const BOOKMARKS_GRAPHQL_MARKER = '/Bookmarks';
+export const LIKES_GRAPHQL_MARKER = '/Likes';
+export const POSTS_GRAPHQL_MARKER = '/UserTweets';
 
 export const REQUIRED_AUTH_COOKIES = ['auth_token', 'ct0', 'twid'] as const;
 

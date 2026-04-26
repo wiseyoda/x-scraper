@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildCursorReplayUrl, parseBookmarksPage, stripHttp2PseudoHeaders } from '../parsing.js';
+import {
+  buildCursorReplayUrl,
+  parseBookmarksPage,
+  parseUserTimelinePage,
+  stripHttp2PseudoHeaders,
+} from '../parsing.js';
 import { ScraperError } from '../types.js';
 
 const FIXED_NOW = '2026-04-26T00:00:00.000Z';
@@ -163,6 +168,65 @@ describe('buildCursorReplayUrl', () => {
     const bad =
       'https://x.com/i/api/graphql/abc123/Bookmarks?variables=' + encodeURIComponent('not-json');
     expect(() => buildCursorReplayUrl(bad, 'CURSOR')).toThrow(ScraperError);
+  });
+});
+
+const makeUserTimelineResponse = (
+  entries: {
+    entryId: string;
+    restId?: string;
+    cursorType?: 'Top' | 'Bottom';
+    cursorValue?: string;
+  }[],
+): unknown => ({
+  data: {
+    user: {
+      result: {
+        timeline: {
+          timeline: {
+            instructions: [
+              {
+                type: 'TimelineAddEntries',
+                entries: entries.map((e) => ({
+                  entryId: e.entryId,
+                  content: e.cursorType
+                    ? { cursorType: e.cursorType, value: e.cursorValue }
+                    : e.restId
+                      ? { itemContent: { tweet_results: { result: { rest_id: e.restId } } } }
+                      : {},
+                })),
+              },
+            ],
+          },
+        },
+      },
+    },
+  },
+});
+
+describe('parseUserTimelinePage', () => {
+  it('extracts likes records and the bottom cursor', () => {
+    const raw = makeUserTimelineResponse([
+      { entryId: 'tweet-300', restId: '300' },
+      { entryId: 'cursor-bottom-x', cursorType: 'Bottom', cursorValue: 'NEXT' },
+    ]);
+    const out = parseUserTimelinePage(raw, 'likes', FIXED_NOW);
+    expect(out.records).toHaveLength(1);
+    expect(out.records[0]?.tweetId).toBe('300');
+    expect(out.records[0]?.source).toBe('likes');
+    expect(out.bottomCursor).toBe('NEXT');
+  });
+
+  it('extracts posts records', () => {
+    const raw = makeUserTimelineResponse([{ entryId: 'tweet-9', restId: '9' }]);
+    const out = parseUserTimelinePage(raw, 'posts', FIXED_NOW);
+    expect(out.records[0]?.source).toBe('posts');
+  });
+
+  it('throws on shape mismatch', () => {
+    expect(() => parseUserTimelinePage({ unexpected: true }, 'likes', FIXED_NOW)).toThrow(
+      ScraperError,
+    );
   });
 });
 
