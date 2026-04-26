@@ -20,7 +20,8 @@
       "@x-scraper/search": ["./packages/search/src/index.ts"],
       "@x-scraper/mcp-server": ["./packages/mcp-server/src/index.ts"],
       "@x-scraper/rest": ["./packages/rest/src/index.ts"],
-      "@x-scraper/digest": ["./packages/digest/src/index.ts"]
+      "@x-scraper/digest": ["./packages/digest/src/index.ts"],
+      "@x-scraper/observability": ["./packages/observability/src/index.ts"]
     }
   },
   "include": ["packages/**/*.ts", "spikes/**/*.ts", "apps/**/*.ts", "*.config.ts"],
