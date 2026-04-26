@@ -112,6 +112,44 @@ describe('createMarkdownVault', () => {
     await expect(vault.read('src_does_not', 'Source')).rejects.toThrow(CoreError);
   });
 
+  it('init() creates a brand-new root directory that does not yet exist', async () => {
+    const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'xscraper-vault-fresh-'));
+    const fresh = path.join(parent, 'does-not-exist-yet');
+    const vfresh = createMarkdownVault(fresh);
+    await vfresh.init({ initialCommit: false });
+    const stat = await fs.stat(path.join(fresh, 'sources/articles'));
+    expect(stat.isDirectory()).toBe(true);
+    await fs.rm(parent, { recursive: true, force: true });
+  });
+
+  it('init() does not auto-commit unrelated staged records on second run', async () => {
+    const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'xscraper-vault-recommit-'));
+    const fresh = path.join(parent, 'vault');
+    const v = createMarkdownVault(fresh);
+    await v.init();
+    const fm = {
+      id: 'src_re00001234',
+      type: 'Source' as const,
+      created_at: NOW,
+      updated_at: NOW,
+      url: 'https://example.com/r',
+      canonical_url: 'https://example.com/r',
+      captured_at: NOW,
+      content_type: 'article' as const,
+      sources: [],
+      aliases: [],
+      tags: [],
+      topics: [],
+      prompt_version: { extraction: 0, reconciliation: 0, embedding: 0 },
+      host_metadata: {},
+    };
+    await v.write({ frontmatter: fm, body: 'pending body\n' });
+    await v.init();
+    const sha = await v.commit('explicit-commit-from-test');
+    expect(sha).not.toBeNull();
+    await fs.rm(parent, { recursive: true, force: true });
+  });
+
   it('rejects ids containing path separators', async () => {
     const fm = {
       id: 'src_../escape',

@@ -87,7 +87,11 @@ const readJsonSafely = async (file: string): Promise<string | null> => {
 };
 
 export const createMarkdownVault = (root: string): VaultStore => {
-  const git: SimpleGit = simpleGit({ baseDir: root });
+  let gitClient: SimpleGit | null = null;
+  const git = (): SimpleGit => {
+    gitClient ??= simpleGit({ baseDir: root });
+    return gitClient;
+  };
 
   const init = async (options: VaultInitOptions = {}): Promise<void> => {
     await ensureDir(root);
@@ -97,22 +101,25 @@ export const createMarkdownVault = (root: string): VaultStore => {
     }
 
     const gitignorePath = path.join(root, '.gitignore');
-    if ((await readJsonSafely(gitignorePath)) === null) {
+    const wroteGitignore = (await readJsonSafely(gitignorePath)) === null;
+    if (wroteGitignore) {
       await writeFileAtomic(gitignorePath, DEFAULT_GITIGNORE);
     }
 
-    const isRepo = await git.checkIsRepo().catch(() => false);
+    const isRepo = await git()
+      .checkIsRepo()
+      .catch(() => false);
     if (!isRepo) {
-      await git.init();
-      await git.addConfig('user.name', 'x-scraper');
-      await git.addConfig('user.email', 'x-scraper@localhost');
+      await git().init();
+      await git().addConfig('user.name', 'x-scraper');
+      await git().addConfig('user.email', 'x-scraper@localhost');
     }
 
-    if (options.initialCommit !== false) {
-      await git.add(['.gitignore']);
-      const status = await git.status();
-      if (status.staged.length > 0) {
-        await git.commit('chore(vault): initial layout');
+    if (options.initialCommit !== false && wroteGitignore) {
+      await git().add(['.gitignore']);
+      const status = await git().status();
+      if (status.staged.includes('.gitignore')) {
+        await git().commit('chore(vault): initial layout', ['.gitignore']);
       }
     }
   };
@@ -126,7 +133,9 @@ export const createMarkdownVault = (root: string): VaultStore => {
       body: record.body,
     });
     await writeFileAtomic(file, text);
-    await git.add([path.relative(root, file)]).catch(() => undefined);
+    await git()
+      .add([path.relative(root, file)])
+      .catch(() => undefined);
     return path.relative(root, file);
   };
 
@@ -194,9 +203,9 @@ export const createMarkdownVault = (root: string): VaultStore => {
   };
 
   const commit = async (message: string): Promise<string | null> => {
-    const status = await git.status();
+    const status = await git().status();
     if (status.staged.length === 0) return null;
-    const result = await git.commit(message);
+    const result = await git().commit(message);
     return result.commit;
   };
 
