@@ -325,27 +325,32 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
        ON CONFLICT(entry_id) DO NOTHING`,
     ),
     selectBookmark: db.prepare(`SELECT * FROM bookmark_ledger WHERE entry_id = ?`),
-    listBookmarksAll: db.prepare(`SELECT * FROM bookmark_ledger ORDER BY captured_at ASC`),
+    // Order by tweet_created_at when known (so "oldest" means oldest tweet,
+    // not oldest pull batch); fall back to captured_at for rows without
+    // a parseable created_at.
+    listBookmarksAll: db.prepare(
+      `SELECT * FROM bookmark_ledger ORDER BY COALESCE(tweet_created_at, captured_at) ASC`,
+    ),
     listBookmarksAllDesc: db.prepare(
-      `SELECT * FROM bookmark_ledger ORDER BY captured_at DESC`,
+      `SELECT * FROM bookmark_ledger ORDER BY COALESCE(tweet_created_at, captured_at) DESC`,
     ),
     listBookmarksByStatus: db.prepare(
-      `SELECT * FROM bookmark_ledger WHERE status = ? ORDER BY captured_at ASC`,
+      `SELECT * FROM bookmark_ledger WHERE status = ? ORDER BY COALESCE(tweet_created_at, captured_at) ASC`,
     ),
     listBookmarksByStatusDesc: db.prepare(
-      `SELECT * FROM bookmark_ledger WHERE status = ? ORDER BY captured_at DESC`,
+      `SELECT * FROM bookmark_ledger WHERE status = ? ORDER BY COALESCE(tweet_created_at, captured_at) DESC`,
     ),
     listBookmarksBySource: db.prepare(
-      `SELECT * FROM bookmark_ledger WHERE source = ? ORDER BY captured_at ASC`,
+      `SELECT * FROM bookmark_ledger WHERE source = ? ORDER BY COALESCE(tweet_created_at, captured_at) ASC`,
     ),
     listBookmarksBySourceDesc: db.prepare(
-      `SELECT * FROM bookmark_ledger WHERE source = ? ORDER BY captured_at DESC`,
+      `SELECT * FROM bookmark_ledger WHERE source = ? ORDER BY COALESCE(tweet_created_at, captured_at) DESC`,
     ),
     listBookmarksBySourceStatus: db.prepare(
-      `SELECT * FROM bookmark_ledger WHERE source = ? AND status = ? ORDER BY captured_at ASC`,
+      `SELECT * FROM bookmark_ledger WHERE source = ? AND status = ? ORDER BY COALESCE(tweet_created_at, captured_at) ASC`,
     ),
     listBookmarksBySourceStatusDesc: db.prepare(
-      `SELECT * FROM bookmark_ledger WHERE source = ? AND status = ? ORDER BY captured_at DESC`,
+      `SELECT * FROM bookmark_ledger WHERE source = ? AND status = ? ORDER BY COALESCE(tweet_created_at, captured_at) DESC`,
     ),
     bookmarkStatsAll: db.prepare(
       `SELECT status, COUNT(*) AS n FROM bookmark_ledger GROUP BY status`,
