@@ -117,3 +117,10 @@ export const buildCountNodes = (label?: EntityType): string => {
   assertValidLabel(label);
   return `MATCH (n:${label}) RETURN count(n) AS n`;
 };
+
+// Reads the dimensions a vector index was created with, so init() can detect
+// drift between the configured DEFAULT_EMBED_DIMS and what's already in the DB.
+export const readVectorIndexDims = (): string =>
+  `SHOW VECTOR INDEXES YIELD name, options
+WHERE name = $name
+RETURN options.indexConfig.\`vector.dimensions\` AS dims`;

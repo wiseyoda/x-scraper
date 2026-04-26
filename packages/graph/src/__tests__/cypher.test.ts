@@ -12,6 +12,7 @@ import {
   buildUpsertNodeWithEmbedding,
   buildVectorIndex,
   buildVectorSearch,
+  readVectorIndexDims,
 } from '../cypher.js';
 import { GraphError } from '../types.js';
 
@@ -135,5 +136,14 @@ describe('buildCountNodes', () => {
 
   it('scopes to a label when supplied', () => {
     expect(buildCountNodes('Claim')).toBe('MATCH (n:Claim) RETURN count(n) AS n');
+  });
+});
+
+describe('readVectorIndexDims', () => {
+  it('uses SHOW VECTOR INDEXES filtered by name', () => {
+    const sql = readVectorIndexDims();
+    expect(sql).toContain('SHOW VECTOR INDEXES');
+    expect(sql).toContain('WHERE name = $name');
+    expect(sql).toContain('options.indexConfig.`vector.dimensions` AS dims');
   });
 });

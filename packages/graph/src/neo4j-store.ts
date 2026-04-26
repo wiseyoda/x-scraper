@@ -21,6 +21,7 @@ import {
   ID_CONSTRAINTS,
   VECTOR_INDEX_NAME,
 } from './constants.js';
+import { readVectorIndexDims } from './cypher.js';
 import {
   buildCountNodes,
   buildIdConstraint,
@@ -56,6 +57,11 @@ const neoIntFromNumber = (n: number): ReturnType<typeof neo4j.int> => neo4j.int(
 export const createNeo4jGraph = (config: Neo4jConfig): GraphStore => {
   const driver: Driver = neo4j.driver(config.uri, neo4j.auth.basic(config.user, config.password));
   const dbName = config.database ?? 'neo4j';
+  // Configured dimensions for the Claim vector index. Set during init() and
+  // referenced by every embedding-bearing call so a caller passing a wrong-dim
+  // vector fails loudly here instead of producing a cryptic Neo4j error or,
+  // worse, silently writing a node whose embedding the index then refuses.
+  let configuredDims: number | undefined;
 
   const withSession = async <T>(fn: (session: Session) => Promise<T>): Promise<T> => {
     const session = driver.session({ database: dbName });
@@ -63,6 +69,18 @@ export const createNeo4jGraph = (config: Neo4jConfig): GraphStore => {
       return await fn(session);
     } finally {
       await session.close();
+    }
+  };
+
+  const assertDims = (where: string, embedding: number[]): void => {
+    if (configuredDims === undefined) {
+      throw new GraphError(`${where}: init() must run before embedding-bearing calls`, 'SCHEMA');
+    }
+    if (embedding.length !== configuredDims) {
+      throw new GraphError(
+        `${where}: embedding has ${embedding.length.toString()} dims but index expects ${configuredDims.toString()}`,
+        'DIM_MISMATCH',
+      );
     }
   };
 
@@ -75,6 +93,16 @@ export const createNeo4jGraph = (config: Neo4jConfig): GraphStore => {
       for (const c of ID_CONSTRAINTS) {
         await session.run(buildIdConstraint(c.name, c.label));
       }
+      // Detect drift before issuing the CREATE: if the index already exists
+      // at different dims, CREATE IF NOT EXISTS would silently keep the old
+      // one and we'd embed against the wrong space.
+      const existingDims = await readExistingIndexDims(session, VECTOR_INDEX_NAME);
+      if (existingDims !== undefined && existingDims !== dims) {
+        throw new GraphError(
+          `vector index ${VECTOR_INDEX_NAME} already exists at ${existingDims.toString()} dims; refusing to use it for ${dims.toString()}-dim embeddings. Drop the index or pick a new one.`,
+          'DIM_MISMATCH',
+        );
+      }
       await session.run(
         buildVectorIndex(VECTOR_INDEX_NAME, 'Claim', VECTOR_INDEX_PROP, dims, DEFAULT_SIMILARITY),
       );
@@ -85,9 +113,25 @@ export const createNeo4jGraph = (config: Neo4jConfig): GraphStore => {
         timeout: neoIntFromNumber(options.awaitIndexesSeconds ?? DEFAULT_AWAIT_INDEXES_SECONDS),
       });
     });
+    configuredDims = dims;
+  };
+
+  const readExistingIndexDims = async (
+    session: Session,
+    indexName: string,
+  ): Promise<number | undefined> => {
+    const result = await session.run(readVectorIndexDims(), { name: indexName });
+    const record = result.records[0];
+    if (record === undefined) return undefined;
+    const raw = record.get('dims') as { toNumber: () => number } | number | null | undefined;
+    if (raw === null || raw === undefined) return undefined;
+    return typeof raw === 'number' ? raw : raw.toNumber();
   };
 
   const upsertNode = async (node: GraphNode): Promise<void> => {
+    if (node.embedding !== undefined && node.type === 'Claim') {
+      assertDims(`upsertNode(${node.id})`, node.embedding);
+    }
     await withSession(async (session) => {
       const params = { id: node.id, props: { ...node.props, id: node.id } };
       if (node.embedding !== undefined) {
@@ -143,6 +187,7 @@ export const createNeo4jGraph = (config: Neo4jConfig): GraphStore => {
         'INVALID_INPUT',
       );
     }
+    assertDims('vectorSearch', embedding);
     return await withSession(async (session) => {
       const result = await session.run(buildVectorSearch(VECTOR_INDEX_NAME), {
         index: VECTOR_INDEX_NAME,
