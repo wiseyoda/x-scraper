@@ -11,16 +11,38 @@
  * route to a transcription path later.
  */
 
+import { z } from 'zod';
+
 import { MAX_BODY_CHARS, MIN_BODY_CHARS, YOUTUBE_HOSTS } from './constants.js';
 import { type FetchOptions, fetchTextWithTimeout } from './http.js';
 import { type IngestedSource, type Ingestor, IngestorError } from './types.js';
 
-interface CaptionTrack {
-  baseUrl: string;
-  languageCode: string;
-  kind?: string;
-  name?: { simpleText?: string };
-}
+const CaptionTrackSchema = z.object({
+  baseUrl: z.string().min(1),
+  languageCode: z.string(),
+  kind: z.string().optional(),
+});
+type CaptionTrack = z.infer<typeof CaptionTrackSchema>;
+
+const PlayerResponseSchema = z.object({
+  videoDetails: z
+    .object({
+      title: z.string().optional(),
+      author: z.string().optional(),
+      lengthSeconds: z.string().optional(),
+    })
+    .optional(),
+  captions: z
+    .object({
+      playerCaptionsTracklistRenderer: z
+        .object({
+          captionTracks: z.array(CaptionTrackSchema).optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+});
+type PlayerResponse = z.infer<typeof PlayerResponseSchema>;
 
 export interface YouTubeConfig extends FetchOptions {
   /** Preferred caption language, default 'en'. */
@@ -55,11 +77,6 @@ export const parseYouTubeUrl = (url: string): { videoId: string } | null => {
 
 const PLAYER_RESPONSE_MARKER = 'ytInitialPlayerResponse =';
 
-interface PlayerResponse {
-  videoDetails?: { title?: string; author?: string; lengthSeconds?: string };
-  captions?: { playerCaptionsTracklistRenderer?: { captionTracks?: CaptionTrack[] } };
-}
-
 export const extractPlayerResponse = (html: string): PlayerResponse | null => {
   const start = html.indexOf(PLAYER_RESPONSE_MARKER);
   if (start === -1) return null;
@@ -83,7 +100,9 @@ export const extractPlayerResponse = (html: string): PlayerResponse | null => {
       depth -= 1;
       if (depth === 0) {
         try {
-          return JSON.parse(html.slice(i, j + 1)) as PlayerResponse;
+          const parsed: unknown = JSON.parse(html.slice(i, j + 1));
+          const result = PlayerResponseSchema.safeParse(parsed);
+          return result.success ? result.data : null;
         } catch {
           return null;
         }

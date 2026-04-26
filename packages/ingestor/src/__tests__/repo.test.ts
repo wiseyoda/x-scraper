@@ -44,6 +44,13 @@ describe('parseGitHubUrl', () => {
   it('returns null for owner-only URLs', () => {
     expect(parseGitHubUrl('https://github.com/getzep')).toBeNull();
   });
+
+  it('returns null for subresource URLs (issues, blob, pull, etc.)', () => {
+    expect(parseGitHubUrl('https://github.com/getzep/graphiti/issues/123')).toBeNull();
+    expect(parseGitHubUrl('https://github.com/getzep/graphiti/blob/main/README.md')).toBeNull();
+    expect(parseGitHubUrl('https://github.com/getzep/graphiti/pull/4')).toBeNull();
+    expect(parseGitHubUrl('https://github.com/getzep/graphiti/tree/main')).toBeNull();
+  });
 });
 
 describe('createRepoIngestor', () => {
@@ -77,7 +84,7 @@ describe('createRepoIngestor', () => {
     expect(source.metadata.language).toBe('TypeScript');
   });
 
-  it('still ingests when README is absent', async () => {
+  it('still ingests when README is genuinely absent (404)', async () => {
     const fetchImpl: FetchLike = vi.fn((url: string) => {
       if (url.endsWith('/readme')) {
         return Promise.resolve(new Response('not found', { status: 404 }));
@@ -93,6 +100,40 @@ describe('createRepoIngestor', () => {
     const source = await ingestor.ingest('https://github.com/getzep/graphiti');
     expect(source.title).toBe('getzep/graphiti');
     expect(source.body).toContain('A knowledge graph engine');
+  });
+
+  it('propagates README failures other than 404 (rate limit, 5xx, etc.)', async () => {
+    const fetchImpl: FetchLike = vi.fn((url: string) => {
+      if (url.endsWith('/readme')) {
+        return Promise.resolve(new Response('rate limited', { status: 429 }));
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify(REPO_INFO), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    });
+    const ingestor = createRepoIngestor({ fetchImpl });
+    await expect(ingestor.ingest('https://github.com/getzep/graphiti')).rejects.toMatchObject({
+      code: 'PROVIDER',
+      httpStatus: 429,
+    });
+  });
+
+  it('throws PARSE when GitHub returns an unexpected JSON shape', async () => {
+    const fetchImpl: FetchLike = vi.fn(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ unexpected: 'shape' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      ),
+    );
+    const ingestor = createRepoIngestor({ fetchImpl });
+    await expect(ingestor.ingest('https://github.com/getzep/graphiti')).rejects.toMatchObject({
+      code: 'PARSE',
+    });
   });
 
   it('forwards a Bearer token when supplied', async () => {

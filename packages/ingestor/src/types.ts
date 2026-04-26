@@ -47,16 +47,18 @@ export class IngestorError extends Error {
   public readonly code: IngestorErrorCode;
   public override readonly cause: unknown;
   public readonly url: string | null;
+  public readonly httpStatus: number | null;
 
   constructor(
     message: string,
     code: IngestorErrorCode,
-    options: { cause?: unknown; url?: string | null } = {},
+    options: { cause?: unknown; url?: string | null; httpStatus?: number | null } = {},
   ) {
     super(message);
     this.name = 'IngestorError';
     this.code = code;
     this.cause = options.cause;
     this.url = options.url ?? null;
+    this.httpStatus = options.httpStatus ?? null;
   }
 }

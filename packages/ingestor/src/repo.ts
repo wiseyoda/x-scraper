@@ -9,6 +9,8 @@
 
 import { Buffer } from 'node:buffer';
 
+import { z } from 'zod';
+
 import {
   GITHUB_API_ACCEPT,
   GITHUB_API_BASE,
@@ -19,27 +21,63 @@ import { fetchJsonWithTimeout, type FetchOptions } from './http.js';
 import { type IngestedSource, type Ingestor, IngestorError } from './types.js';
 
 const GITHUB_HOSTS = ['github.com', 'www.github.com'];
+const HTTP_NOT_FOUND = 404;
 
-interface RepoInfo {
-  name: string;
-  full_name: string;
-  description: string | null;
-  default_branch: string;
-  owner: { login: string } | null;
-  stargazers_count?: number;
-  language?: string | null;
-}
-
-interface ContentBlob {
-  content: string;
-  encoding: string;
-}
+const RepoInfoSchema = z.object({
+  name: z.string(),
+  full_name: z.string(),
+  description: z.string().nullable(),
+  default_branch: z.string(),
+  owner: z.object({ login: z.string() }).nullable(),
+  stargazers_count: z.number().optional(),
+  language: z.string().nullable().optional(),
+});
+const ContentBlobSchema = z.object({
+  content: z.string(),
+  encoding: z.string(),
+});
+type ContentBlob = z.infer<typeof ContentBlobSchema>;
 
 export interface RepoConfig extends FetchOptions {
   /** GitHub token for higher rate limits / private repos. */
   token?: string;
   now?: () => Date;
 }
+
+/**
+ * Only matches repository-root URLs.
+ *
+ * `https://github.com/owner/repo` and `.../owner/repo.git` and trailing
+ * slashes match. URLs that point at a subresource — `/issues/...`,
+ * `/blob/...`, `/pull/...`, `/tree/...`, `/wiki/...` etc. — return
+ * null so the dispatcher falls through to the article ingestor and the
+ * subresource URL is preserved instead of being silently rewritten to
+ * the repo's README.
+ */
+const REPO_RESERVED_SEGMENTS = new Set([
+  'issues',
+  'pull',
+  'pulls',
+  'blob',
+  'tree',
+  'commit',
+  'commits',
+  'wiki',
+  'actions',
+  'releases',
+  'tags',
+  'compare',
+  'discussions',
+  'projects',
+  'security',
+  'pulse',
+  'graphs',
+  'network',
+  'settings',
+  'archive',
+  'raw',
+  'branches',
+]);
 
 export const parseGitHubUrl = (url: string): { owner: string; repo: string } | null => {
   let parsed: URL;
@@ -51,11 +89,15 @@ export const parseGitHubUrl = (url: string): { owner: string; repo: string } | n
   if (!GITHUB_HOSTS.includes(parsed.host)) return null;
   const segments = parsed.pathname.split('/').filter((s) => s.length > 0);
   if (segments.length < 2) return null;
+  // Only the repo root (and trailing slash) qualifies as a repo URL.
+  if (segments.length > 2) return null;
   const owner = segments[0];
   const repo = segments[1]?.replace(/\.git$/, '');
   if (owner === undefined || repo === undefined || owner.length === 0 || repo.length === 0) {
     return null;
   }
+  // Owner cannot be a reserved namespace (defensive — not strictly possible at length 2).
+  if (REPO_RESERVED_SEGMENTS.has(owner)) return null;
   return { owner, repo };
 };
 
@@ -93,15 +135,33 @@ export const createRepoIngestor = (config: RepoConfig = {}): Ingestor => {
     const fetchConfig: FetchOptions = { ...config, headers, accept: GITHUB_API_ACCEPT };
 
     const repoUrl = `${GITHUB_API_BASE}/repos/${target.owner}/${target.repo}`;
-    const repo = await fetchJsonWithTimeout<RepoInfo>(repoUrl, fetchConfig);
+    const repoRaw = await fetchJsonWithTimeout<unknown>(repoUrl, fetchConfig);
+    const repoParsed = RepoInfoSchema.safeParse(repoRaw);
+    if (!repoParsed.success) {
+      throw new IngestorError(`unexpected GitHub repo JSON shape for ${url}`, 'PARSE', {
+        url,
+        cause: repoParsed.error,
+      });
+    }
+    const repo = repoParsed.data;
 
     let readme = '';
     try {
-      const readmeBlob = await fetchJsonWithTimeout<ContentBlob>(`${repoUrl}/readme`, fetchConfig);
-      readme = decodeContent(readmeBlob);
+      const readmeRaw = await fetchJsonWithTimeout<unknown>(`${repoUrl}/readme`, fetchConfig);
+      const readmeParsed = ContentBlobSchema.safeParse(readmeRaw);
+      if (!readmeParsed.success) {
+        throw new IngestorError(`unexpected GitHub /readme JSON shape for ${url}`, 'PARSE', {
+          url,
+          cause: readmeParsed.error,
+        });
+      }
+      readme = decodeContent(readmeParsed.data);
     } catch (err) {
-      // README is optional — proceed with description only.
-      if (err instanceof IngestorError && err.code !== 'PROVIDER') throw err;
+      // README is optional only when the file genuinely doesn't exist
+      // (404 / NOT_FOUND). Rate limits, auth failures, and 5xx must
+      // propagate so the queue can retry rather than silently emit a
+      // description-only source.
+      if (err instanceof IngestorError && err.httpStatus !== HTTP_NOT_FOUND) throw err;
     }
 
     const bodyParts = [

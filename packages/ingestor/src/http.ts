@@ -38,7 +38,10 @@ export const fetchTextWithTimeout = async (
       },
     });
     if (!resp.ok) {
-      throw new IngestorError(`HTTP ${String(resp.status)} fetching ${url}`, 'PROVIDER', { url });
+      throw new IngestorError(`HTTP ${String(resp.status)} fetching ${url}`, 'PROVIDER', {
+        url,
+        httpStatus: resp.status,
+      });
     }
     const text = await resp.text();
     clearTimeout(timer);
