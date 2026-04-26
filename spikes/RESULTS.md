@@ -65,9 +65,21 @@ Not a numbered spike — a sanity check on `~/.config/x-scraper/.env`. `pnpm spi
 - Brute-force fallback uses `array_cosine_similarity(embedding, $vec)` — useful when the index isn't built yet.
 - Multi-statement queries return `QueryResult[]`; single statements return `QueryResult`. Spike has a `single()` helper to normalize.
 
-## Spike 4 — TBD
+## Spike 4 — Gemini embedding-2-preview (PASSED 2026-04-26)
 
-## Spike 5 — TBD
+100 docs embedded via `batchEmbedContents` against `gemini-embedding-2-preview` in **1012 ms** (latency budget 5s) with `outputDimensionality: 1536` Matryoshka truncation. Cosine sanity check: same-topic pair scored **0.97**, different-topic pair **0.75** — clear semantic separation. Adapter fallback to `gemini-embedding-001` is wired but didn't trigger.
+
+Production code uses `batchEmbedContents` for any batch >1; rate limiting is per-project at the API level so we can fan out concurrent batches up to a per-minute cap.
+
+## Spike 5 — Claude entity/claim extraction (PASSED 2026-04-26)
+
+Sonnet 4.6 extracted 10 entities, 10 claims, 11 relationships from a 350-word AI-memory article excerpt. All claims grounded in source text; no hallucinated URLs, version numbers, or invented entities. Zod schema validated on first attempt.
+
+**Lesson:** initial run with `max_tokens: 2000` got truncated mid-JSON (`stop_reason: max_tokens`). Bumped to 32k. Production default per CODING_STANDARDS.md: 16k–32k for extraction calls. Also dropped artificial `MIN_CLAIMS`/`MIN_ENTITIES` schema constraints — let the model extract what's actually present, gate on quality downstream.
+
+Prompt-caching wired via `cache_control: { type: 'ephemeral' }` on the schema/system portion. First call had 0 cache hits (expected); subsequent calls in the same 5-minute TTL window will read from cache.
+
+Cost: ~740 input tokens + 2000 output tokens for the truncated try, ~700 + ~3500 for the successful try. Production extraction at scale should use Haiku 4.5 for the bulk path and Sonnet only for borderline / contested reconciliation.
 
 ## Spike 6 — TBD
 
