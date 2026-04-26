@@ -1,0 +1,39 @@
+{
+  "name": "@x-scraper/rest",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Localhost REST API mirroring the MCP surface (Hono).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "xs-rest": "./dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:watch": "tsc -p tsconfig.json --watch"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "@x-scraper/core": "workspace:*",
+    "@x-scraper/mcp-server": "workspace:*",
+    "@x-scraper/queue": "workspace:*",
+    "@x-scraper/vault": "workspace:*",
+    "hono": "^4.7.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
