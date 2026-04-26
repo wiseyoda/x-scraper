@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Test output
+coverage/
+.vitest-cache/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+pnpm-debug.log*
+
+# Local secrets and runtime data
+.env
+.env.local
+.env.*.local
+
+# Spike scratch / fixtures that shouldn't ship
+spikes/tmp/
+spikes/x-profile/
+spikes/auth/
+
+# Vault & runtime artifacts (these live in ~/Documents/x-scraper-vault)
+vault/
+*.kuzu/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# Codex review artifacts (latest few are kept manually)
+docs/codex/
