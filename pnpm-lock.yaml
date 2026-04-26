@@ -83,12 +83,36 @@ importers:
 
   packages/cli:
     dependencies:
+      '@anthropic-ai/sdk':
+        specifier: ^0.91.1
+        version: 0.91.1(zod@4.3.6)
       '@x-scraper/core':
         specifier: workspace:*
         version: link:../core
+      '@x-scraper/embeddings':
+        specifier: workspace:*
+        version: link:../embeddings
+      '@x-scraper/extractor':
+        specifier: workspace:*
+        version: link:../extractor
+      '@x-scraper/graph':
+        specifier: workspace:*
+        version: link:../graph
+      '@x-scraper/ingestor':
+        specifier: workspace:*
+        version: link:../ingestor
+      '@x-scraper/llm':
+        specifier: workspace:*
+        version: link:../llm
+      '@x-scraper/observability':
+        specifier: workspace:*
+        version: link:../observability
       '@x-scraper/queue':
         specifier: workspace:*
         version: link:../queue
+      '@x-scraper/reconciler':
+        specifier: workspace:*
+        version: link:../reconciler
       '@x-scraper/vault':
         specifier: workspace:*
         version: link:../vault

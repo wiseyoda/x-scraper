@@ -8,5 +8,16 @@
   },
   "include": ["src/**/*.ts"],
   "exclude": ["dist", "node_modules", "**/*.test.ts"],
-  "references": [{ "path": "../core" }, { "path": "../queue" }, { "path": "../vault" }]
+  "references": [
+    { "path": "../core" },
+    { "path": "../embeddings" },
+    { "path": "../extractor" },
+    { "path": "../graph" },
+    { "path": "../ingestor" },
+    { "path": "../llm" },
+    { "path": "../observability" },
+    { "path": "../queue" },
+    { "path": "../reconciler" },
+    { "path": "../vault" }
+  ]
 }

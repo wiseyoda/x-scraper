@@ -23,8 +23,16 @@
     "build:watch": "tsc -p tsconfig.json --watch"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.91.1",
     "@x-scraper/core": "workspace:*",
+    "@x-scraper/embeddings": "workspace:*",
+    "@x-scraper/extractor": "workspace:*",
+    "@x-scraper/graph": "workspace:*",
+    "@x-scraper/ingestor": "workspace:*",
+    "@x-scraper/llm": "workspace:*",
+    "@x-scraper/observability": "workspace:*",
     "@x-scraper/queue": "workspace:*",
+    "@x-scraper/reconciler": "workspace:*",
     "@x-scraper/vault": "workspace:*",
     "zod": "^4.3.6"
   },

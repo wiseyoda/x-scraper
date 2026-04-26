@@ -11,8 +11,10 @@ import { runCost } from './commands/cost.js';
 import { type CheckStatus, runDoctor } from './commands/doctor.js';
 import { runInit } from './commands/init.js';
 import { runStatus } from './commands/status.js';
+import { runSync } from './commands/sync/index.js';
+import { buildCuratedSources, wireSyncDeps } from './commands/sync/wire.js';
 import { resolveConfig } from './config.js';
-import { EXIT_FAIL, EXIT_OK, EXIT_USAGE } from './constants.js';
+import { ENV_FILE_PATH, EXIT_FAIL, EXIT_OK, EXIT_USAGE } from './constants.js';
 
 const HELP = `xs — local-first knowledge graph from X.com bookmarks/likes/posts
 
@@ -20,11 +22,15 @@ Usage:
   xs <command> [options]
 
 Commands:
-  init                Create the vault and the SQLite queue
-  status [--run=ID]   Per-status job counts (optionally scoped to a run)
-  cost [--since=ISO]  Total USD spent on LLM/embedding calls since a date
-  doctor              Sanity-check the local environment
-  help                Show this message
+  init                              Create the vault and the SQLite queue
+  status [--run=ID]                 Per-status job counts (optionally scoped to a run)
+  cost [--since=ISO]                Total USD spent on LLM/embedding calls since a date
+  doctor                            Sanity-check the local environment
+  sync --urls=<a,b,c> [--limit=N]   Run the ingest pipeline against a list of URLs
+       [--source=bookmarks]         Source kind tag for the ingested items
+       [--max-attempts=N]           Per-job retry budget (default 3)
+       [--dry-run]                  Skip the update_graph stage
+  help                              Show this message
 
 Environment:
   XSCRAPER_VAULT      Vault directory (default: ~/Documents/x-scraper-vault)
@@ -81,6 +87,47 @@ const runMain = async (): Promise<number> => {
         console.log(`${STATUS_GLYPH[check.status]} ${check.name.padEnd(24)} ${check.detail}`);
       }
       return anyFail ? EXIT_FAIL : EXIT_OK;
+    }
+    case 'sync': {
+      const urlsArg = args.options.get('urls');
+      if (urlsArg === undefined || urlsArg.length === 0) {
+        console.error('xs sync: --urls is required (comma-separated list of URLs to ingest)');
+        return EXIT_USAGE;
+      }
+      const urls = urlsArg
+        .split(',')
+        .map((u) => u.trim())
+        .filter((u) => u.length > 0);
+      const curated = buildCuratedSources(urls);
+      const limitStr = args.options.get('limit');
+      const maxAttemptsStr = args.options.get('max-attempts');
+      const sourceKind = args.options.get('source') ?? 'bookmarks';
+      if (sourceKind !== 'bookmarks' && sourceKind !== 'likes' && sourceKind !== 'posts') {
+        console.error(`xs sync: --source must be bookmarks|likes|posts (got ${sourceKind})`);
+        return EXIT_USAGE;
+      }
+      const wired = await wireSyncDeps(
+        {
+          envFilePath: ENV_FILE_PATH,
+          vaultDir: config.vaultDir,
+          queuePath: config.queuePath,
+        },
+        curated.map((c) => ({ ...c, sourceKind })),
+      );
+      try {
+        const result = await runSync(wired.deps, {
+          source: sourceKind,
+          ...(limitStr === undefined ? {} : { limit: Number(limitStr) }),
+          ...(maxAttemptsStr === undefined ? {} : { maxAttempts: Number(maxAttemptsStr) }),
+          ...(args.flags.has('dry-run') ? { skipGraph: true } : {}),
+        });
+        console.log(
+          `sync ${result.runId}: enqueued=${String(result.jobsEnqueued)} done=${String(result.jobsCompleted)} dead=${String(result.jobsDead)} failed=${String(result.jobsFailed)} cost=$${result.totalCostUsd.toFixed(4)} duration=${String(result.durationMs)}ms`,
+        );
+        return result.jobsDead > 0 ? EXIT_FAIL : EXIT_OK;
+      } finally {
+        await wired.cleanup();
+      }
     }
     default:
       console.error(`unknown command: ${args.command}`);
