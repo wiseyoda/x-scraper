@@ -1,0 +1,1 @@
+Anthropic released Claude Code, a CLI that connects Claude to your terminal. It can read files, run commands, and execute multi-step coding tasks. Claude Code uses Claude Sonnet 4.6 by default but can switch to Opus for complex reasoning. The tool is available via npm install -g @anthropic-ai/claude-code.

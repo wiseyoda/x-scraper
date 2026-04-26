@@ -68,9 +68,11 @@ const sourceFetcher = async (
   source: BookmarkSource,
   options: { max: number; profileDir: string },
 ): Promise<BookmarkRecord[]> => {
+  // Try headless first — re-uses cookies from a prior `xs auth login`. The
+  // scraper auth fallback opens a headed window only if the persistent
+  // profile has no live session cookies.
   const session: OpenedSession = await openAuthenticatedSession({
     profileDir: options.profileDir,
-    headless: false,
   });
   try {
     const syncOptions: SyncOptions = { source, maxBookmarks: options.max };

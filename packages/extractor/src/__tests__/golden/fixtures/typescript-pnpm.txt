@@ -1,0 +1,1 @@
+pnpm 10 changed the lockfile format and tightened the default isolation. By default pnpm now uses isolated mode, where each package only sees its own dependencies. To opt into the older hoisted layout, set node-linker=hoisted in .npmrc. The TypeScript ecosystem prefers isolated mode because it catches accidental implicit dependencies.

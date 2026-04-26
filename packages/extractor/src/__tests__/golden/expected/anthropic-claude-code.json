@@ -1,0 +1,6 @@
+{
+  "minEntities": 2,
+  "minClaims": 1,
+  "expectedNames": ["Claude Code", "Anthropic"],
+  "expectedSubjectsLowerOrAliases": ["claude code", "anthropic"]
+}

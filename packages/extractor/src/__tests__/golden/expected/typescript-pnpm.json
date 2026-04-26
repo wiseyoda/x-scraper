@@ -1,0 +1,6 @@
+{
+  "minEntities": 1,
+  "minClaims": 1,
+  "expectedNames": ["pnpm"],
+  "expectedSubjectsLowerOrAliases": ["pnpm"]
+}

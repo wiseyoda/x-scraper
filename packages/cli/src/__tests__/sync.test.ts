@@ -72,6 +72,7 @@ const makeFakeGraph = (): GraphStore & { upserts: GraphNode[]; edges: GraphEdge[
     vectorSearch: () => Promise.resolve([]),
     traverse: () => Promise.resolve([]),
     countNodes: () => Promise.resolve(upserts.length),
+    listConceptSubgraph: () => Promise.resolve({ nodes: [], edges: [] }),
     close: () => Promise.resolve(),
   };
 };

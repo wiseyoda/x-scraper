@@ -34,6 +34,7 @@ import {
   buildVectorSearch,
 } from './cypher.js';
 import type {
+  ConceptSubgraph,
   GraphEdge,
   GraphInitOptions,
   GraphNode,
@@ -226,6 +227,42 @@ export const createNeo4jGraph = (config: Neo4jConfig): GraphStore => {
     });
   };
 
+  /**
+   * Read every Concept node + every current RELATED_TO edge between two
+   * Concepts. Used by `xs topic detect` to feed Louvain. Filters on
+   * `invalid_at IS NULL` so superseded edges don't pollute the input.
+   */
+  const listConceptSubgraph = async (): Promise<ConceptSubgraph> => {
+    return await withSession(async (session) => {
+      // Fetch nodes that participate in at least one current RELATED_TO
+      // edge — isolated Concepts add no information for community detection.
+      const nodeResult = await session.run(`
+        MATCH (c:Concept)
+        WHERE EXISTS {
+          MATCH (c)-[r:RELATED_TO]-(:Concept)
+          WHERE r.invalid_at IS NULL
+        }
+        RETURN c.id AS id, c.name AS name
+      `);
+      const nodes = nodeResult.records.map((r) => ({
+        id: r.get('id') as string,
+        type: 'Concept' as const,
+        name: (r.get('name') as string | null) ?? (r.get('id') as string),
+      }));
+      const edgeResult = await session.run(`
+        MATCH (a:Concept)-[r:RELATED_TO]->(b:Concept)
+        WHERE r.invalid_at IS NULL
+        RETURN a.id AS fromId, b.id AS toId
+      `);
+      const edges = edgeResult.records.map((r) => ({
+        from: r.get('fromId') as string,
+        to: r.get('toId') as string,
+        type: 'RELATED_TO' as const,
+      }));
+      return { nodes, edges };
+    });
+  };
+
   const close = async (): Promise<void> => {
     await driver.close();
   };
@@ -238,6 +275,7 @@ export const createNeo4jGraph = (config: Neo4jConfig): GraphStore => {
     vectorSearch,
     traverse,
     countNodes,
+    listConceptSubgraph,
     close,
   };
 };

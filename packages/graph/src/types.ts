@@ -1,5 +1,7 @@
 import type { EdgeType, EntityType } from '@x-scraper/core';
 
+
+
 export interface GraphNode {
   id: string;
   type: EntityType;
@@ -34,6 +36,23 @@ export interface GraphInitOptions {
   awaitIndexesSeconds?: number;
 }
 
+export interface ConceptEdgeRecord {
+  from: string;
+  to: string;
+  type: EdgeType;
+}
+
+export interface ConceptNodeRecord {
+  id: string;
+  type: EntityType;
+  name: string;
+}
+
+export interface ConceptSubgraph {
+  nodes: ConceptNodeRecord[];
+  edges: ConceptEdgeRecord[];
+}
+
 export interface GraphStore {
   init: (options?: GraphInitOptions) => Promise<void>;
   upsertNode: (node: GraphNode) => Promise<void>;
@@ -42,6 +61,12 @@ export interface GraphStore {
   vectorSearch: (label: EntityType, embedding: number[], k: number) => Promise<VectorHit[]>;
   traverse: (startId: string, depth: number, edgeTypes?: EdgeType[]) => Promise<TraverseStep[]>;
   countNodes: (label?: EntityType) => Promise<number>;
+  /**
+   * Read the Concept-RELATED_TO-Concept subgraph (current edges only,
+   * invalid_at IS NULL). Used by `xs topic detect` to feed the Louvain
+   * community detector. Returns nodes and edges deduped by id.
+   */
+  listConceptSubgraph: () => Promise<ConceptSubgraph>;
   close: () => Promise<void>;
 }
 

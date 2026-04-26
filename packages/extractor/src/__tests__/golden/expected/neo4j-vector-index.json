@@ -1,0 +1,6 @@
+{
+  "minEntities": 1,
+  "minClaims": 1,
+  "expectedNames": ["Neo4j"],
+  "expectedSubjectsLowerOrAliases": ["neo4j"]
+}

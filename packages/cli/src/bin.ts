@@ -18,9 +18,15 @@ import { runInit } from './commands/init.js';
 import { MCP_CLIENTS, type McpClient, runMcpRegister } from './commands/mcp-register.js';
 import { runReindex } from './commands/reindex.js';
 import { runReview } from './commands/review.js';
+import {
+  runScheduleInstall,
+  runScheduleUninstall,
+  type ScheduleMode,
+} from './commands/schedule.js';
 import { runStatus } from './commands/status.js';
 import { runSync } from './commands/sync/index.js';
 import { buildCuratedSources, wireSyncDeps } from './commands/sync/wire.js';
+import { runTopicDetect } from './commands/topic.js';
 import { resolveConfig } from './config.js';
 import { ENV_FILE_PATH, EXIT_FAIL, EXIT_OK, EXIT_USAGE } from './constants.js';
 
@@ -54,6 +60,15 @@ Commands:
        [--pause-on-fail] [--dry-run]
   mcp register --client=CLIENT      Wire xs-mcp into a client config
                                     (CLIENT: claude|codex|gemini)
+  topic detect                      Run community detection over Concept-RELATED_TO-Concept
+       [--synthesize]                Use Sonnet to title each topic (billed)
+       [--min-size=N]                Drop communities smaller than N (default 5)
+       [--dry-run]                   Skip vault + graph writes
+  schedule install                  Install a launchd plist that runs xs on a schedule
+       [--mode=bookmarks-sync|sync] Default: bookmarks-sync
+       [--interval=SECONDS]         Default: 3600 (1h)
+  schedule uninstall                Remove the launchd plist + bootout the agent
+       [--mode=bookmarks-sync|sync]
   review                            List entity records that need human triage
   help                              Show this message
 
@@ -194,6 +209,56 @@ const runMain = async (): Promise<number> => {
       });
       console.log(
         `mcp register ${result.client}: ${result.changed ? 'wrote' : 'unchanged'} ${result.configPath}`,
+      );
+      return EXIT_OK;
+    }
+    case 'topic': {
+      const sub = args.positionals[0];
+      if (sub !== 'detect') {
+        console.error(`xs topic: unknown subcommand "${sub ?? ''}" — only 'detect' is supported`);
+        return EXIT_USAGE;
+      }
+      const minSizeStr = args.options.get('min-size');
+      const result = await runTopicDetect(config, {
+        synthesize: args.flags.has('synthesize'),
+        ...(args.flags.has('dry-run') ? { dryRun: true } : {}),
+        ...(minSizeStr === undefined ? {} : { minCommunitySize: Number(minSizeStr) }),
+      });
+      console.log(
+        `topic detect: nodes=${String(result.totalNodes)} edges=${String(result.totalEdges)} communities=${String(result.communitiesFound)} written=${String(result.topicsWritten)} cost=$${result.costUsd.toFixed(4)}`,
+      );
+      return EXIT_OK;
+    }
+    case 'schedule': {
+      const sub = args.positionals[0];
+      if (sub !== 'install' && sub !== 'uninstall') {
+        console.error(
+          `xs schedule: unknown subcommand "${sub ?? ''}" — use 'install' or 'uninstall'`,
+        );
+        return EXIT_USAGE;
+      }
+      const modeArg = args.options.get('mode') ?? 'bookmarks-sync';
+      if (modeArg !== 'bookmarks-sync' && modeArg !== 'sync') {
+        console.error(
+          `xs schedule: --mode must be bookmarks-sync|sync (got ${modeArg})`,
+        );
+        return EXIT_USAGE;
+      }
+      const mode: ScheduleMode = modeArg;
+      if (sub === 'install') {
+        const intervalStr = args.options.get('interval');
+        const result = await runScheduleInstall({
+          mode,
+          ...(intervalStr === undefined ? {} : { intervalSeconds: Number(intervalStr) }),
+        });
+        console.log(
+          `schedule install (${result.mode}): ${result.loaded ? 'loaded' : 'wrote'} ${result.plistPath} every ${String(result.intervalSeconds)}s`,
+        );
+        return EXIT_OK;
+      }
+      const result = await runScheduleUninstall({ mode });
+      console.log(
+        `schedule uninstall (${result.label}): ${result.removed ? 'removed' : 'no plist found at'} ${result.plistPath}`,
       );
       return EXIT_OK;
     }

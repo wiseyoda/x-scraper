@@ -28,10 +28,35 @@ const inferContentType = (url: string): 'tweet' | 'article' | 'repo' | 'video' |
   return 'article';
 };
 
-export const fetchLinksStage = async (_deps: SyncDeps, _ctx: JobContext): Promise<void> => {
-  // For v1 each SourceItem is already one source. Future work: scan the
-  // tweet text for embedded URLs and enqueue follow-up jobs (slice 11's
-  // auto-expand feature handles the discovery half of this).
+/**
+ * Match http/https URLs in a body. Lazy regex — no need for full URL
+ * RFC 3986 compliance because the canonicalizer downstream rejects
+ * malformed URLs.
+ */
+const URL_RE = /https?:\/\/[^\s)]+/g;
+
+export const fetchLinksStage = async (deps: SyncDeps, ctx: JobContext): Promise<void> => {
+  // v1.5 soft auto-expand: scan the source body (when pre-fetched, e.g.
+  // tweet text from the bookmark ledger) for embedded URLs and log them.
+  // Hard auto-expand (enqueueing follow-up jobs with a parent_entry_id
+  // dedupe column) is deferred — see HANDOFF.md.
+  if (ctx.source.body === undefined || ctx.source.body.length === 0) {
+    await Promise.resolve();
+    return;
+  }
+  const matches = ctx.source.body.match(URL_RE) ?? [];
+  // Drop the source URL itself (always present in tweet text as a t.co
+  // self-reference for media tweets) and dedupe.
+  const unique = Array.from(
+    new Set(matches.filter((u) => !u.includes(ctx.source.url))),
+  );
+  if (unique.length > 0) {
+    deps.logger.info('sync.fetch_links.discovered', {
+      sourceId: ctx.source.sourceId,
+      count: unique.length,
+      urls: unique,
+    });
+  }
   await Promise.resolve();
 };
 
