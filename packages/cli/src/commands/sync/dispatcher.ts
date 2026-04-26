@@ -2,24 +2,23 @@
  * `xs sync` dispatcher loop.
  *
  *  enqueue all SourceItems → loop {
- *    job = queue.claimNext()
+ *    job = queue.claimNext({runId})    // run-scoped so we don't pick up
+ *                                       // foreign pending jobs
  *    if (job === null) break
- *    while (job is in-progress):
- *      stage = job.currentStage
- *      try: handlerFor(stage)(deps, ctx)
- *           → completeStage → job advances to next stage (or 'done')
- *      catch: failStage → job goes back to queue for retry, or DLQ
- *      break the inner loop on failure (the queue will re-claim later)
+ *    run every stage handler in memory under the single lease
+ *    on full success: queue.completeAllStages(jobId, attemptId)
+ *    on failure:       queue.failStage({jobId, stage, attemptId, ...})
  *  }
  *
- * The dispatcher runs all stages of a single job back-to-back so the
- * in-memory JobContext stays valid across stages. On a crash mid-job the
- * lease eventually goes stale and the next claim re-runs from the failed
- * stage (re-deriving prior outputs as needed — correctness over speed).
+ * One claim per job avoids the inter-stage race that release-and-reclaim
+ * would create. Running all stages in one pass also means a resumed job
+ * always derives its own context from scratch — there is no stale
+ * intermediate state to carry across crashes.
  */
 
 import { time } from '@x-scraper/observability';
 import type { Job, Stage } from '@x-scraper/queue';
+import { STAGES } from '@x-scraper/queue';
 
 import { handlerFor } from './stages.js';
 import type {
@@ -33,7 +32,7 @@ import type {
 } from './types.js';
 
 const DEFAULT_LIMIT = 50;
-const STAGE_FAILURE_BREAK_FACTOR = 1; // stop processing this job on the first failed stage
+const SYNC_RUN_COMMIT_MSG = 'chore(vault): xs sync run';
 
 const errorCodeOf = (err: unknown): string => {
   if (err !== null && typeof err === 'object' && 'code' in err) {
@@ -71,18 +70,19 @@ export const runSync = async (deps: SyncDeps, options: SyncOptions = {}): Promis
   }
   runLog.info('sync.enqueued', { count: enqueueable.length });
 
-  // 2) Process loop.
+  // 2) Process loop. Run-scoped claim filter prevents the dispatcher from
+  // incidentally leasing stale jobs from a prior run.
   const jobOutcomes: JobOutcome[] = [];
   let claimed = 0;
-  // Hard-cap iterations so a runaway loop can't trap us indefinitely. The
-  // queue should naturally exhaust after at most enqueued × maxAttempts.
   const HARD_CAP = enqueueable.length * (options.maxAttempts ?? 3) + 10;
   while (claimed < HARD_CAP) {
-    const job = deps.queue.claimNext();
+    const job = deps.queue.claimNext({ runId });
     if (job === null) break;
     claimed += 1;
     const source = sourceById.get(job.sourceId);
     if (source === undefined) {
+      // Defensive — shouldn't happen with the runId filter above, but if it
+      // ever does, fail the orphan job rather than silently looping on it.
       runLog.warn('sync.unknown_source', { jobId: job.jobId, sourceId: job.sourceId });
       deps.queue.failStage({
         jobId: job.jobId,
@@ -98,9 +98,24 @@ export const runSync = async (deps: SyncDeps, options: SyncOptions = {}): Promis
     jobOutcomes.push(outcome);
   }
 
-  // 3) Wrap up.
+  // 3) Commit any vault writes from this batch so the audit log reflects
+  // them as a single batch commit, then wrap up. Skipped when the
+  // skipVault path is active (xs reindex), since vault is unchanged.
+  if (options.skipVault !== true) {
+    const commitMsg = `${SYNC_RUN_COMMIT_MSG} ${runId}`;
+    await deps.vault.commit(commitMsg).catch((err: unknown) => {
+      runLog.warn('sync.vault.commit_failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    });
+  }
+
   const stats = deps.queue.stats(runId);
-  deps.queue.finishRun(runId, stats.dead > 0 ? 'failed' : 'done');
+  // Treat any non-clean state (failed retries pending OR dead) as a failed
+  // run so a transient partial failure doesn't get reported as success.
+  const runStatus: 'done' | 'failed' = stats.dead > 0 || stats.failed > 0 ? 'failed' : 'done';
+  deps.queue.finishRun(runId, runStatus);
   const totalCostUsd = deps.queue.costSince(new Date(start).toISOString());
   const durationMs = (deps.now ?? ((): Date => new Date()))().getTime() - start;
   runLog.info('sync.run.finished', {
@@ -108,6 +123,7 @@ export const runSync = async (deps: SyncDeps, options: SyncOptions = {}): Promis
     completed: stats.done,
     dead: stats.dead,
     failed: stats.failed,
+    runStatus,
     costUsd: totalCostUsd,
     durationMs,
   });
@@ -124,15 +140,23 @@ export const runSync = async (deps: SyncDeps, options: SyncOptions = {}): Promis
   };
 };
 
+const stagesToRun = (_options: SyncOptions): Stage[] => {
+  // Always run every stage; the handler-map already swaps in a no-op for
+  // skipped stages (e.g. update_graph in --dry-run, write_vault in
+  // xs reindex). Iterating the full list keeps the per-stage timing
+  // visible in logs even when a stage is a no-op.
+  return [...STAGES];
+};
+
 const processJob = async (
   deps: SyncDeps,
   options: SyncOptions,
-  initialJob: Job,
+  job: Job,
   source: SourceItem,
 ): Promise<JobOutcome> => {
-  const log = deps.logger.child({ jobId: initialJob.jobId, sourceId: source.sourceId });
+  const log = deps.logger.child({ jobId: job.jobId, sourceId: source.sourceId });
   const ctx: JobContext = {
-    jobId: initialJob.jobId,
+    jobId: job.jobId,
     source,
     ingested: null,
     embedding: null,
@@ -142,47 +166,18 @@ const processJob = async (
     vaultWrites: [],
   };
   const stages: StageOutcome[] = [];
+  const attemptId = job.currentAttemptId ?? 0;
 
-  let job: Job = initialJob;
-  // Inner loop: run stages back-to-back as long as they succeed. Break on
-  // the first failure (the queue re-leases later for the failed stage).
-  let safety = STAGE_FAILURE_BREAK_FACTOR + 100;
-  while (safety > 0) {
-    safety -= 1;
-    const stage: Stage = job.currentStage;
-    const attemptId = job.currentAttemptId ?? 0;
+  for (const stage of stagesToRun(options)) {
     const handler = handlerFor(stage, options);
     const stageStart = Date.now();
     try {
       await time(log.child({ stage }), `stage.${stage}`, () => handler(deps, ctx));
-      const advanced = deps.queue.completeStage(job.jobId, stage, attemptId);
       stages.push({ stage, ok: true, durationMs: Date.now() - stageStart });
-      if (advanced.status === 'done') {
-        log.info('sync.job.done', { stages: stages.length });
-        return { jobId: job.jobId, sourceId: source.sourceId, status: 'done', stages };
-      }
-      // Re-claim the same job for the next stage. claimNext() picks up the
-      // same job because the queue's lease was released by completeStage.
-      const next = deps.queue.claimNext();
-      if (next?.jobId !== job.jobId) {
-        // Some other process raced us to claim the next stage. Stop here;
-        // the next outer-loop iteration will pick up wherever it landed.
-        log.warn('sync.job.preempted', {
-          nextStage: advanced.currentStage,
-          claimedNext: next?.jobId ?? null,
-        });
-        return {
-          jobId: job.jobId,
-          sourceId: source.sourceId,
-          status: 'failed',
-          stages,
-        };
-      }
-      job = next;
-      continue;
     } catch (err) {
       const errorCode = errorCodeOf(err);
       const errorMsg = errorMsgOf(err);
+      stages.push({ stage, ok: false, errorCode, errorMsg, durationMs: Date.now() - stageStart });
       const failed = deps.queue.failStage({
         jobId: job.jobId,
         stage,
@@ -191,7 +186,6 @@ const processJob = async (
         errorMsg,
         ...(options.maxAttempts === undefined ? {} : { maxAttempts: options.maxAttempts }),
       });
-      stages.push({ stage, ok: false, errorCode, errorMsg, durationMs: Date.now() - stageStart });
       log.warn('sync.stage.failed', { stage, errorCode, errorMsg, status: failed.status });
       return {
         jobId: job.jobId,
@@ -201,6 +195,11 @@ const processJob = async (
       };
     }
   }
-  log.error('sync.job.safety_exit', { stages: stages.length });
-  return { jobId: job.jobId, sourceId: source.sourceId, status: 'failed', stages };
+
+  // All stages succeeded. completeAllStages finishes the attempt, marks
+  // the job done, and releases the lease — all in one transaction so an
+  // unrelated job can't race in between.
+  deps.queue.completeAllStages(job.jobId, attemptId);
+  log.info('sync.job.done', { stages: stages.length });
+  return { jobId: job.jobId, sourceId: source.sourceId, status: 'done', stages };
 };

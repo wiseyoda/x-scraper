@@ -10,6 +10,7 @@ import { parseArgs } from './argparse.js';
 import { runCost } from './commands/cost.js';
 import { type CheckStatus, runDoctor } from './commands/doctor.js';
 import { runInit } from './commands/init.js';
+import { runReindex } from './commands/reindex.js';
 import { runStatus } from './commands/status.js';
 import { runSync } from './commands/sync/index.js';
 import { buildCuratedSources, wireSyncDeps } from './commands/sync/wire.js';
@@ -30,6 +31,8 @@ Commands:
        [--source=bookmarks]         Source kind tag for the ingested items
        [--max-attempts=N]           Per-job retry budget (default 3)
        [--dry-run]                  Skip the update_graph stage
+  reindex --from-vault [--limit=N]  Rebuild the graph from existing vault markdown
+       [--max-attempts=N]
   help                              Show this message
 
 Environment:
@@ -87,6 +90,34 @@ const runMain = async (): Promise<number> => {
         console.log(`${STATUS_GLYPH[check.status]} ${check.name.padEnd(24)} ${check.detail}`);
       }
       return anyFail ? EXIT_FAIL : EXIT_OK;
+    }
+    case 'reindex': {
+      if (!args.flags.has('from-vault')) {
+        console.error('xs reindex: --from-vault is required (no other source supported yet)');
+        return EXIT_USAGE;
+      }
+      const limitStr = args.options.get('limit');
+      const maxAttemptsStr = args.options.get('max-attempts');
+      const wired = await wireSyncDeps(
+        {
+          envFilePath: ENV_FILE_PATH,
+          vaultDir: config.vaultDir,
+          queuePath: config.queuePath,
+        },
+        [],
+      );
+      try {
+        const result = await runReindex(wired.deps, {
+          ...(limitStr === undefined ? {} : { limit: Number(limitStr) }),
+          ...(maxAttemptsStr === undefined ? {} : { maxAttempts: Number(maxAttemptsStr) }),
+        });
+        console.log(
+          `reindex ${result.runId}: loaded=${String(result.sourcesLoaded)} done=${String(result.jobsCompleted)} dead=${String(result.jobsDead)} failed=${String(result.jobsFailed)} cost=$${result.totalCostUsd.toFixed(4)} duration=${String(result.durationMs)}ms`,
+        );
+        return result.jobsDead > 0 ? EXIT_FAIL : EXIT_OK;
+      } finally {
+        await wired.cleanup();
+      }
     }
     case 'sync': {
       const urlsArg = args.options.get('urls');

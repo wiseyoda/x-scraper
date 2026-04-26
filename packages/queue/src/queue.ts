@@ -144,8 +144,15 @@ export interface JobQueue {
   startRun: () => string;
   finishRun: (runId: string, status?: JobStatus) => void;
   enqueue: (input: EnqueueInput) => string;
-  claimNext: () => Job | null;
+  /** Claim the next ready job. Optionally restrict to one runId, which is
+   *  what `xs sync` uses so a new run can't accidentally pick up a stale
+   *  pending job from a prior run and fail it as UNKNOWN_SOURCE. */
+  claimNext: (filter?: { runId?: string }) => Job | null;
   completeStage: (jobId: string, stage: Stage, attemptId: number) => Job;
+  /** Mark every remaining stage as completed in one shot and finish the
+   *  job. Used when the dispatcher runs all stages back-to-back under a
+   *  single lease, to avoid the inter-stage re-claim race. */
+  completeAllStages: (jobId: string, attemptId: number) => Job;
   failStage: (input: FailInput) => Job;
   retryFailed: (jobId: string) => Job;
   listJobs: (filter?: { runId?: string; status?: JobStatus }) => Job[];
@@ -194,6 +201,13 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
       `SELECT * FROM jobs
        WHERE (status = 'pending' AND (next_run_at IS NULL OR next_run_at <= ?))
           OR (status = 'running' AND leased_at IS NOT NULL AND leased_at < ?)
+       ORDER BY created_at ASC LIMIT 1`,
+    ),
+    claimReadyForRun: db.prepare(
+      `SELECT * FROM jobs
+       WHERE run_id = ?
+         AND ((status = 'pending' AND (next_run_at IS NULL OR next_run_at <= ?))
+           OR (status = 'running' AND leased_at IS NOT NULL AND leased_at < ?))
        ORDER BY created_at ASC LIMIT 1`,
     ),
     leaseJob: db.prepare(
@@ -291,11 +305,14 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
     return existing.job_id;
   };
 
-  const claimNext = (): Job | null => {
+  const claimNext = (filter: { runId?: string } = {}): Job | null => {
     const now = isoNow();
     const staleCutoff = new Date(Date.now() - STALE_LEASE_MS).toISOString();
     const txn = db.transaction((): JobRow | null => {
-      const row = stmts.claimReady.get(now, staleCutoff) as JobRow | undefined;
+      const row =
+        filter.runId === undefined
+          ? (stmts.claimReady.get(now, staleCutoff) as JobRow | undefined)
+          : (stmts.claimReadyForRun.get(filter.runId, now, staleCutoff) as JobRow | undefined);
       if (!row) return null;
       const result = stmts.insertAttempt.run(row.job_id, row.current_stage, now);
       const attemptId = Number(result.lastInsertRowid);
@@ -341,6 +358,33 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
       } else {
         stmts.advanceStage.run(nextStage(stage), now, jobId);
       }
+      const fresh = queryJob(jobId);
+      if (!fresh) throw new QueueError('job vanished after complete', 'INVALID_STATE');
+      return fresh;
+    });
+    return rowToJob(txn());
+  };
+
+  /**
+   * Mark every remaining stage as completed in one shot. Used by the
+   * `xs sync` dispatcher, which runs all stages back-to-back under a
+   * single lease — splitting the completion across N round-trips would
+   * release the lease between stages and let an unrelated job race in.
+   */
+  const completeAllStages = (jobId: string, attemptId: number): Job => {
+    const now = isoNow();
+    const txn = db.transaction((): JobRow => {
+      const job = queryJob(jobId);
+      if (!job) throw new QueueError(`job not found: ${jobId}`, 'NOT_FOUND');
+      assertOwnsLease(job, attemptId, 'completeAllStages');
+      const updated = stmts.finishAttemptById.run(now, 'done', null, null, attemptId);
+      if (updated.changes === 0) {
+        throw new QueueError(
+          `attempt ${String(attemptId)} not running; cannot complete`,
+          'STALE_LEASE',
+        );
+      }
+      stmts.markDone.run(now, jobId);
       const fresh = queryJob(jobId);
       if (!fresh) throw new QueueError('job vanished after complete', 'INVALID_STATE');
       return fresh;
@@ -463,6 +507,7 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
     enqueue,
     claimNext,
     completeStage,
+    completeAllStages,
     failStage,
     retryFailed,
     listJobs,

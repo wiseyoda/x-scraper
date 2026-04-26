@@ -345,14 +345,17 @@ const STAGE_HANDLERS: Record<Stage, (deps: SyncDeps, ctx: JobContext) => Promise
 export const stageHandlers = (
   options: SyncOptions = {},
 ): Record<Stage, (deps: SyncDeps, ctx: JobContext) => Promise<void>> => {
-  if (options.skipGraph !== true) return STAGE_HANDLERS;
+  if (options.skipGraph !== true && options.skipVault !== true) return STAGE_HANDLERS;
+  // Dry-run / reindex modes: substitute a no-op for whichever stage the
+  // caller wants to skip. update_graph is owned by `xs sync --dry-run`;
+  // write_vault is owned by `xs reindex` (the vault is its source of truth).
+  const noop = async (): Promise<void> => {
+    await Promise.resolve();
+  };
   return {
     ...STAGE_HANDLERS,
-    update_graph: async (): Promise<void> => {
-      // Dry-run mode: skip persisting to Neo4j. Useful for validating the
-      // pipeline against real data without polluting the production graph.
-      await Promise.resolve();
-    },
+    ...(options.skipGraph === true ? { update_graph: noop } : {}),
+    ...(options.skipVault === true ? { write_vault: noop } : {}),
   };
 };
 

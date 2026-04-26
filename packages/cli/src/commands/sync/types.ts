@@ -67,6 +67,9 @@ export interface SyncOptions {
   maxAttempts?: number;
   /** Skip the actual update_graph stage (useful for dry-run dogfood). */
   skipGraph?: boolean;
+  /** Skip the write_vault stage — used by `xs reindex` where the vault is
+   *  the source of truth and we're only rebuilding the graph. */
+  skipVault?: boolean;
 }
 
 export interface StageOutcome {
