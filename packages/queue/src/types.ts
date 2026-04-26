@@ -27,6 +27,7 @@ export interface Job {
   nextRunAt: string | null;
   lastError: string | null;
   leasedAt: string | null;
+  currentAttemptId: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -61,6 +62,7 @@ export type QueueErrorCode =
   | 'INVALID_STATE'
   | 'STAGE_OUT_OF_ORDER'
   | 'SCHEMA_MIGRATE'
+  | 'STALE_LEASE'
   | 'UNKNOWN';
 
 export class QueueError extends Error {

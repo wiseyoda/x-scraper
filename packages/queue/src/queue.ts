@@ -80,6 +80,7 @@ interface JobRow {
   next_run_at: string | null;
   last_error: string | null;
   leased_at: string | null;
+  current_attempt_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -96,6 +97,7 @@ const rowToJob = (r: JobRow): Job => ({
   nextRunAt: r.next_run_at,
   lastError: r.last_error,
   leasedAt: r.leased_at,
+  currentAttemptId: r.current_attempt_id,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
 });
@@ -111,6 +113,7 @@ export interface EnqueueInput {
 export interface FailInput {
   jobId: string;
   stage: Stage;
+  attemptId: number;
   errorCode: string;
   errorMsg: string;
   maxAttempts?: number;
@@ -142,7 +145,7 @@ export interface JobQueue {
   finishRun: (runId: string, status?: JobStatus) => void;
   enqueue: (input: EnqueueInput) => string;
   claimNext: () => Job | null;
-  completeStage: (jobId: string, stage: Stage) => Job;
+  completeStage: (jobId: string, stage: Stage, attemptId: number) => Job;
   failStage: (input: FailInput) => Job;
   retryFailed: (jobId: string) => Job;
   listJobs: (filter?: { runId?: string; status?: JobStatus }) => Job[];
@@ -180,8 +183,8 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
       `INSERT INTO jobs (
          job_id, run_id, source_id, source_kind, idempotency_key,
          current_stage, status, attempts, next_run_at, last_error,
-         leased_at, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, NULL, NULL, NULL, ?, ?)
+         leased_at, current_attempt_id, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, NULL, NULL, NULL, NULL, ?, ?)
        ON CONFLICT (run_id, source_id, idempotency_key) DO NOTHING`,
     ),
     findExisting: db.prepare(
@@ -194,30 +197,33 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
        ORDER BY created_at ASC LIMIT 1`,
     ),
     leaseJob: db.prepare(
-      `UPDATE jobs SET status = 'running', leased_at = ?, updated_at = ?
+      `UPDATE jobs SET status = 'running', leased_at = ?, current_attempt_id = ?, updated_at = ?
        WHERE job_id = ? AND status IN ('pending','running')`,
     ),
     advanceStage: db.prepare(
       `UPDATE jobs SET current_stage = ?, status = 'pending', leased_at = NULL,
+         current_attempt_id = NULL,
          attempts = 0, last_error = NULL, next_run_at = NULL, updated_at = ?
        WHERE job_id = ?`,
     ),
     markDone: db.prepare(
-      `UPDATE jobs SET status = 'done', leased_at = NULL, updated_at = ? WHERE job_id = ?`,
+      `UPDATE jobs SET status = 'done', leased_at = NULL, current_attempt_id = NULL,
+         attempts = 0, next_run_at = NULL, last_error = NULL, updated_at = ?
+       WHERE job_id = ?`,
     ),
     markFailed: db.prepare(
       `UPDATE jobs SET status = ?, attempts = attempts + 1,
-         next_run_at = ?, last_error = ?, leased_at = NULL, updated_at = ?
+         next_run_at = ?, last_error = ?, leased_at = NULL, current_attempt_id = NULL,
+         updated_at = ?
        WHERE job_id = ?`,
     ),
     resetAttempts: db.prepare(`UPDATE jobs SET attempts = 0 WHERE job_id = ?`),
     insertAttempt: db.prepare(
       `INSERT INTO attempts (job_id, stage, started_at, status) VALUES (?, ?, ?, 'running')`,
     ),
-    finishAttempt: db.prepare(
+    finishAttemptById: db.prepare(
       `UPDATE attempts SET finished_at = ?, status = ?, error_code = ?, error_msg = ?
-       WHERE attempt_id = (SELECT attempt_id FROM attempts WHERE job_id = ? AND stage = ?
-                           ORDER BY attempt_id DESC LIMIT 1)`,
+       WHERE attempt_id = ? AND status = 'running'`,
     ),
     insertDlq: db.prepare(
       `INSERT INTO dlq (job_id, stage, error_code, error_msg, added_at) VALUES (?, ?, ?, ?, ?)`,
@@ -235,9 +241,9 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
     ),
     insertCost: db.prepare(
       `INSERT INTO cost_ledger (
-         recorded_at, run_id, job_id, stage, provider, model,
+         ledger_id, recorded_at, run_id, job_id, stage, provider, model,
          input_tokens, output_tokens, cache_read_tokens, cache_create_tokens, cost_usd
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     sumCostSince: db.prepare(
       `SELECT COALESCE(SUM(cost_usd), 0) AS total FROM cost_ledger WHERE recorded_at >= ?`,
@@ -291,8 +297,9 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
     const txn = db.transaction((): JobRow | null => {
       const row = stmts.claimReady.get(now, staleCutoff) as JobRow | undefined;
       if (!row) return null;
-      stmts.leaseJob.run(now, now, row.job_id);
-      stmts.insertAttempt.run(row.job_id, row.current_stage, now);
+      const result = stmts.insertAttempt.run(row.job_id, row.current_stage, now);
+      const attemptId = Number(result.lastInsertRowid);
+      stmts.leaseJob.run(now, attemptId, now, row.job_id);
       const fresh = queryJob(row.job_id);
       if (!fresh) throw new QueueError('job vanished after claim', 'INVALID_STATE');
       return fresh;
@@ -301,7 +308,16 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
     return result === null ? null : rowToJob(result);
   };
 
-  const completeStage = (jobId: string, stage: Stage): Job => {
+  const assertOwnsLease = (job: JobRow, attemptId: number, callsite: string): void => {
+    if (job.current_attempt_id !== attemptId) {
+      throw new QueueError(
+        `stale lease at ${callsite}: job ${job.job_id} active attempt is ${String(job.current_attempt_id)}, caller has ${String(attemptId)}`,
+        'STALE_LEASE',
+      );
+    }
+  };
+
+  const completeStage = (jobId: string, stage: Stage, attemptId: number): Job => {
     const now = isoNow();
     const txn = db.transaction((): JobRow => {
       const job = queryJob(jobId);
@@ -312,7 +328,14 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
           'STAGE_OUT_OF_ORDER',
         );
       }
-      stmts.finishAttempt.run(now, 'done', null, null, jobId, stage);
+      assertOwnsLease(job, attemptId, 'completeStage');
+      const updated = stmts.finishAttemptById.run(now, 'done', null, null, attemptId);
+      if (updated.changes === 0) {
+        throw new QueueError(
+          `attempt ${String(attemptId)} not running; cannot complete`,
+          'STALE_LEASE',
+        );
+      }
       if (isLastStage(stage)) {
         stmts.markDone.run(now, jobId);
       } else {
@@ -331,14 +354,20 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
     const txn = db.transaction((): JobRow => {
       const job = queryJob(input.jobId);
       if (!job) throw new QueueError(`job not found: ${input.jobId}`, 'NOT_FOUND');
-      stmts.finishAttempt.run(
+      assertOwnsLease(job, input.attemptId, 'failStage');
+      const updated = stmts.finishAttemptById.run(
         now,
         'failed',
         input.errorCode,
         input.errorMsg,
-        input.jobId,
-        input.stage,
+        input.attemptId,
       );
+      if (updated.changes === 0) {
+        throw new QueueError(
+          `attempt ${String(input.attemptId)} not running; cannot fail`,
+          'STALE_LEASE',
+        );
+      }
       const newAttempts = job.attempts + 1;
       if (newAttempts >= max) {
         stmts.markFailed.run('dead', null, input.errorMsg, now, input.jobId);
@@ -392,8 +421,8 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
 
   const recordCost = (cost: CostInput): string => {
     const ledgerId = newLedgerId();
-    void ledgerId; // kept for symmetry with id-prefixed records elsewhere
     stmts.insertCost.run(
+      ledgerId,
       isoNow(),
       cost.runId ?? null,
       cost.jobId ?? null,

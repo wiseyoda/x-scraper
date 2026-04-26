@@ -67,14 +67,18 @@ describe('createSqliteQueue', () => {
       const job = queue.claimNext();
       if (job === null) throw new Error('expected a claimable job');
       expect(job.currentStage).toBe(stage);
-      queue.completeStage(job.jobId, stage);
+      if (job.currentAttemptId === null) throw new Error('expected lease token');
+      queue.completeStage(job.jobId, stage, job.currentAttemptId);
     }
     const final = queue.listJobs({ runId })[0];
     expect(final?.status).toBe('done');
+    expect(final?.attempts).toBe(0);
+    expect(final?.lastError).toBeNull();
+    expect(final?.nextRunAt).toBeNull();
     expect(queue.claimNext()).toBeNull();
   });
 
-  it('failStage retries with backoff until maxAttempts then DLQs', () => {
+  it('failStage with maxAttempts=2 leaves job pending with backoff after one failure', () => {
     const runId = queue.startRun();
     const jobId = queue.enqueue({
       runId,
@@ -83,30 +87,41 @@ describe('createSqliteQueue', () => {
       idempotencyKey: 'k',
     });
     const job = queue.claimNext();
-    expect(job?.jobId).toBe(jobId);
+    if (!job?.currentAttemptId) throw new Error('expected lease token');
     queue.failStage({
       jobId,
       stage: STAGES[0],
+      attemptId: job.currentAttemptId,
       errorCode: 'NETWORK',
       errorMsg: 'first fail',
       maxAttempts: 2,
     });
-    let after = queue.listJobs({ runId })[0];
+    const after = queue.listJobs({ runId })[0];
     expect(after?.status).toBe('pending');
     expect(after?.attempts).toBe(1);
+    expect(after?.nextRunAt).not.toBeNull();
+    expect(after?.lastError).toBe('first fail');
+  });
 
-    // Force the next_run_at gate by failing once more without waiting.
-    // The claimNext won't pick it up because next_run_at is in the future,
-    // but we simulate retry-via-failure by directly failing again at the
-    // same stage from the recorded job.
+  it('failStage with maxAttempts=1 sends the job straight to DLQ', () => {
+    const runId = queue.startRun();
+    const jobId = queue.enqueue({
+      runId,
+      sourceId: 'src_1',
+      sourceKind: 'bookmarks',
+      idempotencyKey: 'k',
+    });
+    const job = queue.claimNext();
+    if (!job?.currentAttemptId) throw new Error('expected lease token');
     queue.failStage({
       jobId,
       stage: STAGES[0],
+      attemptId: job.currentAttemptId,
       errorCode: 'NETWORK',
-      errorMsg: 'second fail',
-      maxAttempts: 2,
+      errorMsg: 'fatal',
+      maxAttempts: 1,
     });
-    after = queue.listJobs({ runId })[0];
+    const after = queue.listJobs({ runId })[0];
     expect(after?.status).toBe('dead');
     expect(queue.listDlq().map((j) => j.jobId)).toContain(jobId);
   });
@@ -119,8 +134,16 @@ describe('createSqliteQueue', () => {
       sourceKind: 'bookmarks',
       idempotencyKey: 'k',
     });
-    queue.claimNext();
-    queue.failStage({ jobId, stage: STAGES[0], errorCode: 'X', errorMsg: 'x', maxAttempts: 1 });
+    const claimed = queue.claimNext();
+    if (!claimed?.currentAttemptId) throw new Error('expected lease token');
+    queue.failStage({
+      jobId,
+      stage: STAGES[0],
+      attemptId: claimed.currentAttemptId,
+      errorCode: 'X',
+      errorMsg: 'x',
+      maxAttempts: 1,
+    });
     expect(queue.listDlq().map((j) => j.jobId)).toContain(jobId);
     const reopened = queue.retryFailed(jobId);
     expect(reopened.status).toBe('pending');
@@ -136,8 +159,42 @@ describe('createSqliteQueue', () => {
       sourceKind: 'bookmarks',
       idempotencyKey: 'k',
     });
-    queue.claimNext();
-    expect(() => queue.completeStage(jobId, STAGES[1])).toThrow(QueueError);
+    const claimed = queue.claimNext();
+    if (!claimed?.currentAttemptId) throw new Error('expected lease token');
+    const attemptId = claimed.currentAttemptId;
+    expect(() => queue.completeStage(jobId, STAGES[1], attemptId)).toThrow(QueueError);
+  });
+
+  it('rejects completeStage with a stale attempt id (lease theft protection)', () => {
+    const runId = queue.startRun();
+    const jobId = queue.enqueue({
+      runId,
+      sourceId: 'src_1',
+      sourceKind: 'bookmarks',
+      idempotencyKey: 'k',
+    });
+    const first = queue.claimNext();
+    if (!first?.currentAttemptId) throw new Error('expected lease token');
+    queue.failStage({
+      jobId,
+      stage: STAGES[0],
+      attemptId: first.currentAttemptId,
+      errorCode: 'X',
+      errorMsg: 'x',
+      maxAttempts: 5,
+    });
+    // After failStage, current_attempt_id is cleared. Old attempt id is stale.
+    const staleAttemptId = first.currentAttemptId;
+    expect(() => queue.completeStage(jobId, STAGES[0], staleAttemptId)).toThrow(QueueError);
+    expect(() =>
+      queue.failStage({
+        jobId,
+        stage: STAGES[0],
+        attemptId: staleAttemptId,
+        errorCode: 'X',
+        errorMsg: 'x',
+      }),
+    ).toThrow(QueueError);
   });
 
   it('records cost and sums it since a timestamp', () => {

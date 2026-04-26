@@ -27,19 +27,20 @@ CREATE TABLE IF NOT EXISTS runs (
 ) WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS jobs (
-  job_id          TEXT PRIMARY KEY,
-  run_id          TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
-  source_id       TEXT NOT NULL,
-  source_kind     TEXT NOT NULL,
-  idempotency_key TEXT NOT NULL,
-  current_stage   TEXT NOT NULL,
-  status          TEXT NOT NULL CHECK (status IN ('pending','running','done','failed','dead')),
-  attempts        INTEGER NOT NULL DEFAULT 0,
-  next_run_at     TEXT,
-  last_error      TEXT,
-  leased_at       TEXT,
-  created_at      TEXT NOT NULL,
-  updated_at      TEXT NOT NULL,
+  job_id              TEXT PRIMARY KEY,
+  run_id              TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+  source_id           TEXT NOT NULL,
+  source_kind         TEXT NOT NULL,
+  idempotency_key     TEXT NOT NULL,
+  current_stage       TEXT NOT NULL,
+  status              TEXT NOT NULL CHECK (status IN ('pending','running','done','failed','dead')),
+  attempts            INTEGER NOT NULL DEFAULT 0,
+  next_run_at         TEXT,
+  last_error          TEXT,
+  leased_at           TEXT,
+  current_attempt_id  INTEGER,
+  created_at          TEXT NOT NULL,
+  updated_at          TEXT NOT NULL,
   UNIQUE (run_id, source_id, idempotency_key)
 ) WITHOUT ROWID;
 
@@ -68,7 +69,7 @@ CREATE TABLE IF NOT EXISTS dlq (
 ) WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS cost_ledger (
-  ledger_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+  ledger_id     TEXT PRIMARY KEY,
   recorded_at   TEXT NOT NULL,
   run_id        TEXT,
   job_id        TEXT,
@@ -80,7 +81,7 @@ CREATE TABLE IF NOT EXISTS cost_ledger (
   cache_read_tokens   INTEGER NOT NULL DEFAULT 0,
   cache_create_tokens INTEGER NOT NULL DEFAULT 0,
   cost_usd      REAL NOT NULL DEFAULT 0
-);
+) WITHOUT ROWID;
 
 CREATE INDEX IF NOT EXISTS ledger_recorded_idx ON cost_ledger (recorded_at);
 CREATE INDEX IF NOT EXISTS ledger_run_idx ON cost_ledger (run_id);
