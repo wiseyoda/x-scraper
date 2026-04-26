@@ -13,6 +13,7 @@ export default defineConfig({
       '@x-scraper/embeddings': resolve(__dirname, 'packages/embeddings/src/index.ts'),
       '@x-scraper/llm': resolve(__dirname, 'packages/llm/src/index.ts'),
       '@x-scraper/extractor': resolve(__dirname, 'packages/extractor/src/index.ts'),
+      '@x-scraper/reconciler': resolve(__dirname, 'packages/reconciler/src/index.ts'),
     },
   },
   test: {
