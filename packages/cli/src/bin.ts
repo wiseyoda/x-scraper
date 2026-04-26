@@ -6,10 +6,12 @@
  * exercise this dispatcher.
  */
 
+import type { BookmarkSource } from '@x-scraper/queue';
 import { createMarkdownVault } from '@x-scraper/vault';
 
 import { parseArgs } from './argparse.js';
 import { runAuthLogin } from './commands/auth.js';
+import { runBookmarksPull, runBookmarksSync } from './commands/bookmarks.js';
 import { runCost } from './commands/cost.js';
 import { type CheckStatus, runDoctor } from './commands/doctor.js';
 import { runInit } from './commands/init.js';
@@ -21,6 +23,10 @@ import { runSync } from './commands/sync/index.js';
 import { buildCuratedSources, wireSyncDeps } from './commands/sync/wire.js';
 import { resolveConfig } from './config.js';
 import { ENV_FILE_PATH, EXIT_FAIL, EXIT_OK, EXIT_USAGE } from './constants.js';
+
+const BOOKMARK_SOURCES: readonly BookmarkSource[] = ['bookmarks', 'likes', 'posts'];
+const isBookmarkSource = (s: string): s is BookmarkSource =>
+  (BOOKMARK_SOURCES as readonly string[]).includes(s);
 
 const HELP = `xs — local-first knowledge graph from X.com bookmarks/likes/posts
 
@@ -39,6 +45,13 @@ Commands:
   reindex --from-vault [--limit=N]  Rebuild the graph from existing vault markdown
        [--max-attempts=N]
   auth login [--profile-dir=DIR]    Open an authenticated x.com session (Patchright)
+  bookmarks pull                    Pull bookmarks/likes/posts from x.com into the ledger
+       [--source=bookmarks|likes|posts]
+       [--max=N] [--profile-dir=DIR]
+  bookmarks sync                    Run pipeline against ledger rows one-at-a-time
+       [--order=oldest|newest]      Default oldest-first
+       [--limit=N] [--source=bookmarks|likes|posts]
+       [--pause-on-fail] [--dry-run]
   mcp register --client=CLIENT      Wire xs-mcp into a client config
                                     (CLIENT: claude|codex|gemini)
   review                            List entity records that need human triage
@@ -114,6 +127,53 @@ const runMain = async (): Promise<number> => {
         `auth: ${result.screenName} (id ${result.userId}) via ${result.pathTaken}; profile=${result.profileDir}`,
       );
       return EXIT_OK;
+    }
+    case 'bookmarks': {
+      const sub = args.positionals[0];
+      if (sub !== 'pull' && sub !== 'sync') {
+        console.error(
+          `xs bookmarks: unknown subcommand "${sub ?? ''}" — use 'pull' or 'sync'`,
+        );
+        return EXIT_USAGE;
+      }
+      const sourceArg = args.options.get('source');
+      if (sourceArg !== undefined && !isBookmarkSource(sourceArg)) {
+        console.error(
+          `xs bookmarks: --source must be bookmarks|likes|posts (got ${sourceArg})`,
+        );
+        return EXIT_USAGE;
+      }
+      if (sub === 'pull') {
+        const maxStr = args.options.get('max');
+        const profileDir = args.options.get('profile-dir');
+        const result = await runBookmarksPull(config, {
+          ...(sourceArg === undefined ? {} : { source: sourceArg }),
+          ...(maxStr === undefined ? {} : { max: Number(maxStr) }),
+          ...(profileDir === undefined ? {} : { profileDir }),
+        });
+        console.log(
+          `bookmarks pull (${result.source}): fetched=${String(result.fetched)} inserted=${String(result.inserted)} unchanged=${String(result.unchanged)} skipped=${String(result.skipped)} ledger=${String(result.ledgerTotal)}`,
+        );
+        return EXIT_OK;
+      }
+      // sync
+      const orderArg = args.options.get('order') ?? 'oldest';
+      if (orderArg !== 'oldest' && orderArg !== 'newest') {
+        console.error(`xs bookmarks sync: --order must be oldest|newest (got ${orderArg})`);
+        return EXIT_USAGE;
+      }
+      const limitStr = args.options.get('limit');
+      const result = await runBookmarksSync(config, {
+        order: orderArg,
+        ...(sourceArg === undefined ? {} : { source: sourceArg }),
+        ...(limitStr === undefined ? {} : { limit: Number(limitStr) }),
+        ...(args.flags.has('pause-on-fail') ? { pauseOnFail: true } : {}),
+        ...(args.flags.has('dry-run') ? { dryRun: true } : {}),
+      });
+      console.log(
+        `bookmarks sync: attempted=${String(result.attempted)} succeeded=${String(result.succeeded)} failed=${String(result.failed)}${result.haltedOnFail ? ' (halted on fail)' : ''} cost=$${result.totalCostUsd.toFixed(4)}`,
+      );
+      return result.failed > 0 ? EXIT_FAIL : EXIT_OK;
     }
     case 'mcp': {
       const sub = args.positionals[0];

@@ -21,5 +21,7 @@ export {
   parseUserTimelinePage,
   stripHttp2PseudoHeaders,
 } from './parsing.js';
+export type { TweetPayload } from './payload.js';
+export { extractTweetPayload, tweetPermalink } from './payload.js';
 export type { AuthOptions, BookmarkRecord, PageCursor, SessionInfo, SyncOptions } from './types.js';
 export { BookmarkRecordSchema, ScraperError } from './types.js';

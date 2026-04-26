@@ -1,0 +1,380 @@
+/**
+ * `xs bookmarks` family — durable bookmark backlog management on top of
+ * the existing scraper + queue. Two commands:
+ *
+ *   xs bookmarks pull [--source=bookmarks|likes|posts] [--max=N]
+ *     Drives passive+active capture against X.com, extracts tweet text +
+ *     embedded URLs, upserts each row into the `bookmark_ledger` table
+ *     with status='new'. Idempotent on entry_id — re-running picks up
+ *     newly-discovered rows without disturbing already-synced ones.
+ *
+ *   xs bookmarks sync [--order=oldest|newest] [--limit=N] [--pause-on-fail]
+ *     Picks ledger rows where status='new', oldest-first by default, and
+ *     runs them through the existing xs sync pipeline one at a time.
+ *     Each bookmark gets its own queue run so vault commits are atomic
+ *     per-source. Marks rows as 'synced' or 'failed' as it goes; with
+ *     --pause-on-fail, halts on the first failure so the operator can
+ *     inspect the resulting Source.md / claims and decide whether to
+ *     retry, skip, or fix-and-resume.
+ */
+
+import { canonicalizeUrl, entityId } from '@x-scraper/core';
+import type { Logger } from '@x-scraper/observability';
+import { createLogger, jsonLineSink } from '@x-scraper/observability';
+import type { BookmarkSource, JobQueue } from '@x-scraper/queue';
+import { createSqliteQueue } from '@x-scraper/queue';
+import type { BookmarkRecord, OpenedSession, SyncOptions } from '@x-scraper/scraper';
+import {
+  closeSession,
+  extractTweetPayload,
+  fetchBookmarks,
+  fetchLikes,
+  fetchPosts,
+  openAuthenticatedSession,
+  ScraperError,
+  tweetPermalink,
+} from '@x-scraper/scraper';
+
+import type { CliConfig } from '../config.js';
+import { ENV_FILE_PATH } from '../constants.js';
+import { DEFAULT_PROFILE_DIR } from './auth.js';
+import { runSync } from './sync/index.js';
+import type { SourceItem } from './sync/types.js';
+import { wireSyncDeps } from './sync/wire.js';
+
+export interface BookmarksPullOptions {
+  source?: BookmarkSource;
+  max?: number;
+  profileDir?: string;
+  /** Test seam: inject a logger; defaults to a stdout NDJSON logger. */
+  logger?: Logger;
+  /** Test seam: replace the live scraper. Default opens a real session. */
+  fetcher?: (
+    source: BookmarkSource,
+    options: { max: number; profileDir: string },
+  ) => Promise<BookmarkRecord[]>;
+}
+
+export interface BookmarksPullResult {
+  source: BookmarkSource;
+  fetched: number;
+  inserted: number;
+  unchanged: number;
+  skipped: number;
+  ledgerTotal: number;
+}
+
+const sourceFetcher = async (
+  source: BookmarkSource,
+  options: { max: number; profileDir: string },
+): Promise<BookmarkRecord[]> => {
+  const session: OpenedSession = await openAuthenticatedSession({
+    profileDir: options.profileDir,
+    headless: false,
+  });
+  try {
+    const syncOptions: SyncOptions = { source, maxBookmarks: options.max };
+    if (source === 'bookmarks') {
+      const result = await fetchBookmarks(session, syncOptions);
+      return result.records;
+    }
+    if (source === 'likes') {
+      const result = await fetchLikes(session, { maxBookmarks: options.max });
+      return result.records;
+    }
+    const result = await fetchPosts(session, { maxBookmarks: options.max });
+    return result.records;
+  } finally {
+    await closeSession(session);
+  }
+};
+
+const stdoutLogger = (): Logger =>
+  createLogger({
+    level: 'info',
+    sink: jsonLineSink((line) => {
+      process.stdout.write(line);
+    }),
+  });
+
+export const runBookmarksPull = async (
+  config: CliConfig,
+  options: BookmarksPullOptions = {},
+): Promise<BookmarksPullResult> => {
+  const source: BookmarkSource = options.source ?? 'bookmarks';
+  const max = options.max ?? 200;
+  const profileDir = options.profileDir ?? DEFAULT_PROFILE_DIR;
+  const logger = options.logger ?? stdoutLogger();
+  const fetch = options.fetcher ?? sourceFetcher;
+
+  logger.info('bookmarks.pull.started', { source, max });
+  const records = await fetch(source, { max, profileDir });
+  logger.info('bookmarks.pull.fetched', { count: records.length });
+
+  const queue: JobQueue = createSqliteQueue(config.queuePath);
+  let inserted = 0;
+  let unchanged = 0;
+  let skipped = 0;
+  try {
+    for (const record of records) {
+      const payload = extractTweetPayload(record);
+      if (payload === null) {
+        skipped += 1;
+        logger.warn('bookmarks.pull.skipped_unparseable', {
+          entryId: record.entryId,
+          tweetId: record.tweetId,
+        });
+        continue;
+      }
+      const url = canonicalizeUrl(tweetPermalink(record.tweetId, payload.author));
+      const result = queue.upsertBookmark({
+        entryId: record.entryId,
+        tweetId: record.tweetId,
+        source,
+        sourceUrl: url,
+        author: payload.author,
+        text: payload.text,
+        urls: payload.urls,
+        capturedAt: record.capturedAt,
+        tweetCreatedAt: payload.createdAt,
+      });
+      if (result === 'inserted') inserted += 1;
+      else unchanged += 1;
+    }
+    const stats = queue.bookmarkStats({ source });
+    logger.info('bookmarks.pull.finished', {
+      source,
+      inserted,
+      unchanged,
+      skipped,
+      ledgerTotal: stats.total,
+    });
+    return {
+      source,
+      fetched: records.length,
+      inserted,
+      unchanged,
+      skipped,
+      ledgerTotal: stats.total,
+    };
+  } finally {
+    queue.close();
+  }
+};
+
+// ─── xs bookmarks sync ──────────────────────────────────────────────────
+
+export interface BookmarksSyncOptions {
+  order?: 'oldest' | 'newest';
+  limit?: number;
+  pauseOnFail?: boolean;
+  source?: BookmarkSource;
+  /** Skip the actual graph write — useful when dogfooding the parser. */
+  dryRun?: boolean;
+  logger?: Logger;
+  /** Test seam: stub the per-bookmark sync runner. */
+  syncOne?: (item: BookmarkSyncItem) => Promise<BookmarkSyncOutcome>;
+}
+
+export interface BookmarkSyncItem {
+  entryId: string;
+  source: SourceItem;
+}
+
+export interface BookmarkSyncOutcome {
+  entryId: string;
+  status: 'synced' | 'failed';
+  runId: string;
+  jobId: string | null;
+  jobStatus: 'done' | 'failed' | 'dead' | null;
+  error: string | null;
+  durationMs: number;
+  costUsd: number;
+}
+
+export interface BookmarksSyncResult {
+  attempted: number;
+  succeeded: number;
+  failed: number;
+  haltedOnFail: boolean;
+  totalCostUsd: number;
+  outcomes: BookmarkSyncOutcome[];
+}
+
+export const buildSyncItemFromLedger = (entry: {
+  entryId: string;
+  source: BookmarkSource;
+  sourceUrl: string;
+  author: string | null;
+  text: string;
+  capturedAt: string;
+}): BookmarkSyncItem => {
+  const url = canonicalizeUrl(entry.sourceUrl);
+  const sourceItem: SourceItem = {
+    sourceId: entityId('Source', url),
+    sourceKind: entry.source,
+    url,
+    body: entry.text,
+    discoveredAt: entry.capturedAt,
+    ...(entry.author === null ? {} : { byline: entry.author }),
+  };
+  return { entryId: entry.entryId, source: sourceItem };
+};
+
+export const runBookmarksSync = async (
+  config: CliConfig,
+  options: BookmarksSyncOptions = {},
+): Promise<BookmarksSyncResult> => {
+  const order = options.order ?? 'oldest';
+  const logger = options.logger ?? stdoutLogger();
+  const queue = createSqliteQueue(config.queuePath);
+
+  const filter: { status: 'new'; order: 'oldest' | 'newest'; limit?: number; source?: BookmarkSource } =
+    { status: 'new', order };
+  if (options.limit !== undefined) filter.limit = options.limit;
+  if (options.source !== undefined) filter.source = options.source;
+  const candidates = queue.listBookmarks(filter);
+  queue.close();
+
+  logger.info('bookmarks.sync.started', {
+    order,
+    candidates: candidates.length,
+    pauseOnFail: options.pauseOnFail === true,
+  });
+
+  if (candidates.length === 0) {
+    return {
+      attempted: 0,
+      succeeded: 0,
+      failed: 0,
+      haltedOnFail: false,
+      totalCostUsd: 0,
+      outcomes: [],
+    };
+  }
+
+  const items = candidates.map((c) =>
+    buildSyncItemFromLedger({
+      entryId: c.entryId,
+      source: c.source,
+      sourceUrl: c.sourceUrl,
+      author: c.author,
+      text: c.text,
+      capturedAt: c.capturedAt,
+    }),
+  );
+
+  const syncOne =
+    options.syncOne ??
+    ((item: BookmarkSyncItem): Promise<BookmarkSyncOutcome> =>
+      runOnePerLedgerItem(config, item, options.dryRun === true));
+
+  const outcomes: BookmarkSyncOutcome[] = [];
+  let totalCost = 0;
+  let halted = false;
+  for (const item of items) {
+    const outcome = await syncOne(item);
+    outcomes.push(outcome);
+    totalCost += outcome.costUsd;
+
+    // Reflect the outcome in the ledger.
+    const writebackQueue = createSqliteQueue(config.queuePath);
+    try {
+      writebackQueue.updateBookmark(item.entryId, {
+        status: outcome.status,
+        runId: outcome.runId,
+        jobId: outcome.jobId,
+        ...(outcome.status === 'synced'
+          ? { syncedAt: new Date().toISOString(), lastError: null }
+          : { lastError: outcome.error ?? 'unknown' }),
+        bumpAttempts: true,
+      });
+    } finally {
+      writebackQueue.close();
+    }
+
+    logger.info('bookmarks.sync.item.done', {
+      entryId: item.entryId,
+      status: outcome.status,
+      durationMs: outcome.durationMs,
+      costUsd: outcome.costUsd,
+    });
+
+    if (outcome.status === 'failed' && options.pauseOnFail === true) {
+      halted = true;
+      break;
+    }
+  }
+
+  const succeeded = outcomes.filter((o) => o.status === 'synced').length;
+  const failed = outcomes.filter((o) => o.status === 'failed').length;
+  logger.info('bookmarks.sync.finished', {
+    attempted: outcomes.length,
+    succeeded,
+    failed,
+    haltedOnFail: halted,
+    totalCostUsd: totalCost,
+  });
+
+  return {
+    attempted: outcomes.length,
+    succeeded,
+    failed,
+    haltedOnFail: halted,
+    totalCostUsd: totalCost,
+    outcomes,
+  };
+};
+
+const runOnePerLedgerItem = async (
+  config: CliConfig,
+  item: BookmarkSyncItem,
+  dryRun: boolean,
+): Promise<BookmarkSyncOutcome> => {
+  const start = Date.now();
+  // Each bookmark gets its own SyncDeps so the dispatcher's loadSources
+  // returns exactly that one item. The queue is opened fresh inside
+  // wireSyncDeps and closed in cleanup so concurrent reads from the
+  // ledger writeback don't deadlock with WAL writers.
+  const wired = await wireSyncDeps(
+    {
+      envFilePath: ENV_FILE_PATH,
+      vaultDir: config.vaultDir,
+      queuePath: config.queuePath,
+    },
+    [item.source],
+  );
+  try {
+    const result = await runSync(wired.deps, {
+      source: item.source.sourceKind,
+      ...(dryRun ? { skipGraph: true } : {}),
+    });
+    const job = result.jobs[0];
+    const jobStatus: 'done' | 'failed' | 'dead' | null = job?.status ?? null;
+    const errStage = job?.stages.find((s) => !s.ok);
+    return {
+      entryId: item.entryId,
+      runId: result.runId,
+      jobId: job?.jobId ?? null,
+      jobStatus,
+      status: result.jobsCompleted > 0 ? 'synced' : 'failed',
+      error: errStage === undefined ? null : `${errStage.stage}: ${errStage.errorMsg ?? 'unknown'}`,
+      durationMs: Date.now() - start,
+      costUsd: result.totalCostUsd,
+    };
+  } catch (err) {
+    return {
+      entryId: item.entryId,
+      runId: 'wire-failure',
+      jobId: null,
+      jobStatus: null,
+      status: 'failed',
+      error: err instanceof ScraperError ? err.message : err instanceof Error ? err.message : String(err),
+      durationMs: Date.now() - start,
+      costUsd: 0,
+    };
+  } finally {
+    await wired.cleanup();
+  }
+};
+

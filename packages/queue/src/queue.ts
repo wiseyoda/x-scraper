@@ -32,8 +32,17 @@ import {
   STAGES,
   STALE_LEASE_MS,
 } from './constants.js';
-import { SCHEMA_SQL, SCHEMA_VERSION } from './schema.js';
-import type { Job } from './types.js';
+import { MIGRATIONS, SCHEMA_SQL, SCHEMA_VERSION } from './schema.js';
+import type {
+  BookmarkEntry,
+  BookmarkLedgerStats,
+  BookmarkListFilter,
+  BookmarkSource,
+  BookmarkStatus,
+  BookmarkUpdateFields,
+  BookmarkUpsertInput,
+  Job,
+} from './types.js';
 import { QueueError } from './types.js';
 
 const RANDOM_BYTES_RUN = 8;
@@ -160,22 +169,61 @@ export interface JobQueue {
   recordCost: (cost: CostInput) => string;
   costSince: (sinceIso: string) => number;
   stats: (runId?: string) => QueueStats;
+  /**
+   * Upsert a bookmark into the ledger. Idempotent on entry_id — re-pulling
+   * the same entry is a no-op (status/synced_at preserved). Used by
+   * `xs bookmarks pull`.
+   */
+  upsertBookmark: (input: BookmarkUpsertInput) => 'inserted' | 'unchanged';
+  /** List bookmarks ordered by captured_at; defaults to oldest-first new. */
+  listBookmarks: (filter?: BookmarkListFilter) => BookmarkEntry[];
+  /** Look up a single ledger entry. */
+  getBookmark: (entryId: string) => BookmarkEntry | null;
+  /**
+   * Update mutable status/error fields on a ledger row. `updated_at` is
+   * always refreshed; pass `bumpAttempts:true` to atomically increment
+   * the attempts counter.
+   */
+  updateBookmark: (entryId: string, fields: BookmarkUpdateFields) => BookmarkEntry;
+  /** Aggregate counts by status. */
+  bookmarkStats: (filter?: { source?: BookmarkSource }) => BookmarkLedgerStats;
   close: () => void;
 }
 
+/**
+ * Apply the bootstrap schema (idempotent CREATE IF NOT EXISTS) and walk
+ * forward through any pending migrations to land at SCHEMA_VERSION.
+ * A db at user_version=0 is a fresh bootstrap and gets stamped with
+ * SCHEMA_VERSION directly. A db ahead of SCHEMA_VERSION is a downgrade
+ * and is rejected — running an older binary against a newer db would
+ * silently break invariants the newer code expects.
+ */
 const ensureSchema = (db: DatabaseType): void => {
   db.exec(SCHEMA_SQL);
   const versionRow = db.prepare('PRAGMA user_version').get() as
     | { user_version: number }
     | undefined;
-  const current = versionRow?.user_version ?? 0;
+  let current = versionRow?.user_version ?? 0;
   if (current === 0) {
+    // Fresh bootstrap: SCHEMA_SQL is already at the latest shape.
     db.exec(`PRAGMA user_version = ${String(SCHEMA_VERSION)};`);
-  } else if (current !== SCHEMA_VERSION) {
+    return;
+  }
+  if (current > SCHEMA_VERSION) {
     throw new QueueError(
-      `schema version mismatch: db=${String(current)} expected=${String(SCHEMA_VERSION)}`,
+      `schema version ahead of binary: db=${String(current)} binary=${String(SCHEMA_VERSION)}`,
       'SCHEMA_MIGRATE',
     );
+  }
+  while (current < SCHEMA_VERSION) {
+    const next = current + 1;
+    const migration = MIGRATIONS[next];
+    if (migration === undefined) {
+      throw new QueueError(`no migration defined for v${String(next)}`, 'SCHEMA_MIGRATE');
+    }
+    db.exec(migration);
+    db.exec(`PRAGMA user_version = ${String(next)};`);
+    current = next;
   }
 };
 
@@ -265,6 +313,45 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
     statsAll: db.prepare(`SELECT status, COUNT(*) AS n FROM jobs GROUP BY status`),
     statsByRun: db.prepare(
       `SELECT status, COUNT(*) AS n FROM jobs WHERE run_id = ? GROUP BY status`,
+    ),
+    // Bookmark ledger statements. Insert is idempotent on entry_id; we
+    // never overwrite a row that's already been processed because that
+    // would clobber the status/synced_at audit trail.
+    insertBookmark: db.prepare(
+      `INSERT INTO bookmark_ledger (
+         entry_id, tweet_id, source, source_url, author, text, urls_json,
+         captured_at, tweet_created_at, status, attempts, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', 0, ?, ?)
+       ON CONFLICT(entry_id) DO NOTHING`,
+    ),
+    selectBookmark: db.prepare(`SELECT * FROM bookmark_ledger WHERE entry_id = ?`),
+    listBookmarksAll: db.prepare(`SELECT * FROM bookmark_ledger ORDER BY captured_at ASC`),
+    listBookmarksAllDesc: db.prepare(
+      `SELECT * FROM bookmark_ledger ORDER BY captured_at DESC`,
+    ),
+    listBookmarksByStatus: db.prepare(
+      `SELECT * FROM bookmark_ledger WHERE status = ? ORDER BY captured_at ASC`,
+    ),
+    listBookmarksByStatusDesc: db.prepare(
+      `SELECT * FROM bookmark_ledger WHERE status = ? ORDER BY captured_at DESC`,
+    ),
+    listBookmarksBySource: db.prepare(
+      `SELECT * FROM bookmark_ledger WHERE source = ? ORDER BY captured_at ASC`,
+    ),
+    listBookmarksBySourceDesc: db.prepare(
+      `SELECT * FROM bookmark_ledger WHERE source = ? ORDER BY captured_at DESC`,
+    ),
+    listBookmarksBySourceStatus: db.prepare(
+      `SELECT * FROM bookmark_ledger WHERE source = ? AND status = ? ORDER BY captured_at ASC`,
+    ),
+    listBookmarksBySourceStatusDesc: db.prepare(
+      `SELECT * FROM bookmark_ledger WHERE source = ? AND status = ? ORDER BY captured_at DESC`,
+    ),
+    bookmarkStatsAll: db.prepare(
+      `SELECT status, COUNT(*) AS n FROM bookmark_ledger GROUP BY status`,
+    ),
+    bookmarkStatsBySource: db.prepare(
+      `SELECT status, COUNT(*) AS n FROM bookmark_ledger WHERE source = ? GROUP BY status`,
     ),
   };
 
@@ -497,6 +584,170 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
     return out;
   };
 
+  // ─── Bookmark ledger ────────────────────────────────────────────────
+  interface BookmarkRow {
+    entry_id: string;
+    tweet_id: string;
+    source: BookmarkSource;
+    source_url: string;
+    author: string | null;
+    text: string;
+    urls_json: string;
+    captured_at: string;
+    tweet_created_at: string | null;
+    status: BookmarkStatus;
+    synced_at: string | null;
+    run_id: string | null;
+    job_id: string | null;
+    attempts: number;
+    last_error: string | null;
+    created_at: string;
+    updated_at: string;
+  }
+
+  const parseUrls = (json: string): string[] => {
+    try {
+      const parsed: unknown = JSON.parse(json);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((v): v is string => typeof v === 'string');
+    } catch {
+      return [];
+    }
+  };
+
+  const rowToBookmark = (r: BookmarkRow): BookmarkEntry => ({
+    entryId: r.entry_id,
+    tweetId: r.tweet_id,
+    source: r.source,
+    sourceUrl: r.source_url,
+    author: r.author,
+    text: r.text,
+    urls: parseUrls(r.urls_json),
+    capturedAt: r.captured_at,
+    tweetCreatedAt: r.tweet_created_at,
+    status: r.status,
+    syncedAt: r.synced_at,
+    runId: r.run_id,
+    jobId: r.job_id,
+    attempts: r.attempts,
+    lastError: r.last_error,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  });
+
+  const upsertBookmark = (input: BookmarkUpsertInput): 'inserted' | 'unchanged' => {
+    const now = isoNow();
+    const result = stmts.insertBookmark.run(
+      input.entryId,
+      input.tweetId,
+      input.source,
+      input.sourceUrl,
+      input.author ?? null,
+      input.text,
+      JSON.stringify(input.urls ?? []),
+      input.capturedAt,
+      input.tweetCreatedAt ?? null,
+      now,
+      now,
+    );
+    return result.changes > 0 ? 'inserted' : 'unchanged';
+  };
+
+  const listBookmarks = (filter: BookmarkListFilter = {}): BookmarkEntry[] => {
+    const order = filter.order ?? 'oldest';
+    const desc = order === 'newest';
+    const rows = ((): unknown[] => {
+      if (filter.source !== undefined && filter.status !== undefined) {
+        return desc
+          ? stmts.listBookmarksBySourceStatusDesc.all(filter.source, filter.status)
+          : stmts.listBookmarksBySourceStatus.all(filter.source, filter.status);
+      }
+      if (filter.source !== undefined) {
+        return desc
+          ? stmts.listBookmarksBySourceDesc.all(filter.source)
+          : stmts.listBookmarksBySource.all(filter.source);
+      }
+      if (filter.status !== undefined) {
+        return desc
+          ? stmts.listBookmarksByStatusDesc.all(filter.status)
+          : stmts.listBookmarksByStatus.all(filter.status);
+      }
+      return desc ? stmts.listBookmarksAllDesc.all() : stmts.listBookmarksAll.all();
+    })();
+    const all = (rows as BookmarkRow[]).map(rowToBookmark);
+    return filter.limit === undefined ? all : all.slice(0, filter.limit);
+  };
+
+  const getBookmark = (entryId: string): BookmarkEntry | null => {
+    const row = stmts.selectBookmark.get(entryId) as BookmarkRow | undefined;
+    return row === undefined ? null : rowToBookmark(row);
+  };
+
+  /**
+   * Build the UPDATE SQL dynamically — only fields the caller supplied
+   * are written. Keeps every other column intact, including the audit
+   * fields like attempts and synced_at when not explicitly cleared.
+   */
+  const updateBookmark = (entryId: string, fields: BookmarkUpdateFields): BookmarkEntry => {
+    const sets: string[] = [];
+    const args: unknown[] = [];
+    if (fields.status !== undefined) {
+      sets.push('status = ?');
+      args.push(fields.status);
+    }
+    if (Object.prototype.hasOwnProperty.call(fields, 'syncedAt')) {
+      sets.push('synced_at = ?');
+      args.push(fields.syncedAt ?? null);
+    }
+    if (Object.prototype.hasOwnProperty.call(fields, 'runId')) {
+      sets.push('run_id = ?');
+      args.push(fields.runId ?? null);
+    }
+    if (Object.prototype.hasOwnProperty.call(fields, 'jobId')) {
+      sets.push('job_id = ?');
+      args.push(fields.jobId ?? null);
+    }
+    if (Object.prototype.hasOwnProperty.call(fields, 'lastError')) {
+      sets.push('last_error = ?');
+      args.push(fields.lastError ?? null);
+    }
+    if (fields.bumpAttempts === true) {
+      sets.push('attempts = attempts + 1');
+    }
+    sets.push('updated_at = ?');
+    args.push(isoNow());
+    if (sets.length === 1) {
+      // Only updated_at would change — caller passed an empty patch.
+      // Run it anyway so the timestamp moves; this is the documented
+      // "touch" behavior callers can rely on.
+    }
+    args.push(entryId);
+    const sql = `UPDATE bookmark_ledger SET ${sets.join(', ')} WHERE entry_id = ?`;
+    const result = db.prepare(sql).run(...args);
+    if (result.changes === 0) {
+      throw new QueueError(`bookmark not found: ${entryId}`, 'NOT_FOUND');
+    }
+    const fresh = getBookmark(entryId);
+    if (fresh === null) throw new QueueError('bookmark vanished after update', 'INVALID_STATE');
+    return fresh;
+  };
+
+  const bookmarkStats = (
+    filter: { source?: BookmarkSource } = {},
+  ): BookmarkLedgerStats => {
+    const out: BookmarkLedgerStats = { total: 0, new: 0, synced: 0, failed: 0, skipped: 0 };
+    const rows = (
+      filter.source !== undefined
+        ? stmts.bookmarkStatsBySource.all(filter.source)
+        : stmts.bookmarkStatsAll.all()
+    ) as { status: BookmarkStatus; n: number }[];
+    for (const r of rows) {
+      out[r.status] = r.n;
+      out.total += r.n;
+    }
+    return out;
+  };
+
   const close = (): void => {
     db.close();
   };
@@ -515,6 +766,11 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
     recordCost,
     costSince,
     stats,
+    upsertBookmark,
+    listBookmarks,
+    getBookmark,
+    updateBookmark,
+    bookmarkStats,
     close,
   };
 };

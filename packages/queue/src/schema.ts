@@ -2,17 +2,23 @@
  * SQLite schema for the queue.
  *
  * Tables (all WITHOUT ROWID where the natural key is a string):
- *   - runs: top-level batch (one per `xs sync` invocation)
- *   - jobs: one per source per run, points at the active stage
- *   - attempts: append-only history of every stage attempt
- *   - dlq: jobs that exhausted retries on a single stage
- *   - cost_ledger: every LLM call with run/job/stage attribution
+ *   - runs:          top-level batch (one per `xs sync` invocation)
+ *   - jobs:          one per source per run, points at the active stage
+ *   - attempts:      append-only history of every stage attempt
+ *   - dlq:           jobs that exhausted retries on a single stage
+ *   - cost_ledger:   every LLM call with run/job/stage attribution
+ *   - bookmark_ledger (v2): durable backlog of bookmarks/likes/posts
+ *                    enumerated from X.com, with sync status. Lets
+ *                    `xs bookmarks pull` and `xs bookmarks sync` work
+ *                    incrementally across sessions.
  *
- * Migrations bump the user_version pragma. v0 is the bootstrap schema
- * below; future migrations add columns or new tables only.
+ * Migrations bump the user_version pragma. v1 is the bootstrap schema.
+ * v2+ adds the named ALTER/CREATE statements in MIGRATIONS — destructive
+ * changes (column drops, table rebuilds) require a new bumped version
+ * with explicit data-preserving SQL.
  */
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export const SCHEMA_SQL = `
 PRAGMA journal_mode = WAL;
@@ -85,4 +91,63 @@ CREATE TABLE IF NOT EXISTS cost_ledger (
 
 CREATE INDEX IF NOT EXISTS ledger_recorded_idx ON cost_ledger (recorded_at);
 CREATE INDEX IF NOT EXISTS ledger_run_idx ON cost_ledger (run_id);
+
+CREATE TABLE IF NOT EXISTS bookmark_ledger (
+  entry_id    TEXT PRIMARY KEY,
+  tweet_id    TEXT NOT NULL,
+  source      TEXT NOT NULL CHECK (source IN ('bookmarks','likes','posts')),
+  source_url  TEXT NOT NULL,
+  author      TEXT,
+  text        TEXT NOT NULL,
+  urls_json   TEXT NOT NULL DEFAULT '[]',
+  captured_at TEXT NOT NULL,
+  tweet_created_at TEXT,
+  status      TEXT NOT NULL CHECK (status IN ('new','synced','failed','skipped')) DEFAULT 'new',
+  synced_at   TEXT,
+  run_id      TEXT,
+  job_id      TEXT,
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  last_error  TEXT,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
+) WITHOUT ROWID;
+
+CREATE INDEX IF NOT EXISTS bookmark_ledger_status_captured_idx
+  ON bookmark_ledger (status, captured_at);
+CREATE INDEX IF NOT EXISTS bookmark_ledger_source_captured_idx
+  ON bookmark_ledger (source, captured_at);
 `;
+
+/**
+ * Forward-only migrations applied after the bootstrap SCHEMA_SQL when an
+ * existing database is at a lower user_version. Each entry runs in a
+ * single exec() so multi-statement blocks stay atomic.
+ */
+export const MIGRATIONS: Record<number, string> = {
+  2: `
+    CREATE TABLE IF NOT EXISTS bookmark_ledger (
+      entry_id    TEXT PRIMARY KEY,
+      tweet_id    TEXT NOT NULL,
+      source      TEXT NOT NULL CHECK (source IN ('bookmarks','likes','posts')),
+      source_url  TEXT NOT NULL,
+      author      TEXT,
+      text        TEXT NOT NULL,
+      urls_json   TEXT NOT NULL DEFAULT '[]',
+      captured_at TEXT NOT NULL,
+      tweet_created_at TEXT,
+      status      TEXT NOT NULL CHECK (status IN ('new','synced','failed','skipped')) DEFAULT 'new',
+      synced_at   TEXT,
+      run_id      TEXT,
+      job_id      TEXT,
+      attempts    INTEGER NOT NULL DEFAULT 0,
+      last_error  TEXT,
+      created_at  TEXT NOT NULL,
+      updated_at  TEXT NOT NULL
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS bookmark_ledger_status_captured_idx
+      ON bookmark_ledger (status, captured_at);
+    CREATE INDEX IF NOT EXISTS bookmark_ledger_source_captured_idx
+      ON bookmark_ledger (source, captured_at);
+  `,
+};

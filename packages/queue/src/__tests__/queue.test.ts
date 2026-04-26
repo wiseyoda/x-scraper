@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
+import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { STAGES } from '../constants.js';
@@ -297,5 +298,165 @@ describe('createSqliteQueue', () => {
     const reopened = q2.listJobs({ runId });
     expect(reopened).toHaveLength(1);
     q2.close();
+  });
+});
+
+describe('bookmark ledger', () => {
+  it('upserts bookmarks idempotently', () => {
+    const result1 = queue.upsertBookmark({
+      entryId: 'tweet-1',
+      tweetId: '1',
+      source: 'bookmarks',
+      sourceUrl: 'https://x.com/u/status/1',
+      text: 'hello',
+      author: 'u',
+      urls: ['https://example.com'],
+      capturedAt: '2026-01-01T00:00:00.000Z',
+    });
+    const result2 = queue.upsertBookmark({
+      entryId: 'tweet-1',
+      tweetId: '1',
+      source: 'bookmarks',
+      sourceUrl: 'https://x.com/u/status/1',
+      text: 'changed',
+      capturedAt: '2026-01-02T00:00:00.000Z',
+    });
+    expect(result1).toBe('inserted');
+    expect(result2).toBe('unchanged');
+    const got = queue.getBookmark('tweet-1');
+    expect(got?.text).toBe('hello');
+    expect(got?.urls).toEqual(['https://example.com']);
+  });
+
+  it('lists bookmarks oldest-first by default and filters by status/source', () => {
+    queue.upsertBookmark({
+      entryId: 'a',
+      tweetId: '1',
+      source: 'bookmarks',
+      sourceUrl: 'u1',
+      text: 't1',
+      capturedAt: '2026-01-01T00:00:00.000Z',
+    });
+    queue.upsertBookmark({
+      entryId: 'b',
+      tweetId: '2',
+      source: 'bookmarks',
+      sourceUrl: 'u2',
+      text: 't2',
+      capturedAt: '2026-01-03T00:00:00.000Z',
+    });
+    queue.upsertBookmark({
+      entryId: 'c',
+      tweetId: '3',
+      source: 'likes',
+      sourceUrl: 'u3',
+      text: 't3',
+      capturedAt: '2026-01-02T00:00:00.000Z',
+    });
+
+    const all = queue.listBookmarks();
+    expect(all.map((b) => b.entryId)).toEqual(['a', 'c', 'b']);
+
+    const newest = queue.listBookmarks({ order: 'newest' });
+    expect(newest.map((b) => b.entryId)).toEqual(['b', 'c', 'a']);
+
+    const onlyBookmarks = queue.listBookmarks({ source: 'bookmarks' });
+    expect(onlyBookmarks.map((b) => b.entryId)).toEqual(['a', 'b']);
+
+    queue.updateBookmark('a', { status: 'synced' });
+    const stillNew = queue.listBookmarks({ status: 'new' });
+    expect(stillNew.map((b) => b.entryId)).toEqual(['c', 'b']);
+
+    expect(queue.listBookmarks({ limit: 1 }).map((b) => b.entryId)).toEqual(['a']);
+  });
+
+  it('updates only supplied fields, bumps attempts atomically', () => {
+    queue.upsertBookmark({
+      entryId: 'x',
+      tweetId: '9',
+      source: 'bookmarks',
+      sourceUrl: 'u',
+      text: 't',
+      capturedAt: '2026-01-01T00:00:00.000Z',
+    });
+    const after = queue.updateBookmark('x', {
+      status: 'failed',
+      lastError: 'boom',
+      runId: 'run_1',
+      jobId: 'job_1',
+      bumpAttempts: true,
+    });
+    expect(after.status).toBe('failed');
+    expect(after.lastError).toBe('boom');
+    expect(after.attempts).toBe(1);
+
+    const second = queue.updateBookmark('x', { bumpAttempts: true });
+    expect(second.attempts).toBe(2);
+    expect(second.lastError).toBe('boom'); // not cleared
+  });
+
+  it('updateBookmark on a missing entry throws NOT_FOUND', () => {
+    expect(() => queue.updateBookmark('missing', { status: 'synced' })).toThrowError(QueueError);
+  });
+
+  it('reports stats per status with optional source filter', () => {
+    queue.upsertBookmark({
+      entryId: 'a',
+      tweetId: '1',
+      source: 'bookmarks',
+      sourceUrl: 'u',
+      text: 't',
+      capturedAt: '2026-01-01T00:00:00.000Z',
+    });
+    queue.upsertBookmark({
+      entryId: 'b',
+      tweetId: '2',
+      source: 'likes',
+      sourceUrl: 'u',
+      text: 't',
+      capturedAt: '2026-01-01T00:00:00.000Z',
+    });
+    queue.updateBookmark('a', { status: 'synced' });
+    const all = queue.bookmarkStats();
+    expect(all).toEqual({ total: 2, new: 1, synced: 1, failed: 0, skipped: 0 });
+    const onlyLikes = queue.bookmarkStats({ source: 'likes' });
+    expect(onlyLikes).toEqual({ total: 1, new: 1, synced: 0, failed: 0, skipped: 0 });
+  });
+
+  it('forward-migrates a v1 db onto v2 schema without losing jobs', () => {
+    const dbPath = path.join(dbDir, 'v1-to-v2.sqlite');
+    // Synthesize a v1 db: bootstrap the queue, then manually downgrade
+    // PRAGMA user_version, drop the v2 table, and re-open.
+    const seed = createSqliteQueue(dbPath);
+    const runId = seed.startRun();
+    seed.enqueue({
+      runId,
+      sourceId: 'src_1',
+      sourceKind: 'bookmarks',
+      idempotencyKey: 'k',
+    });
+    seed.close();
+
+    // Simulate "this db was created by the v1 binary": drop the v2
+    // bookmark table and reset user_version to 1.
+    const raw = new Database(dbPath);
+    raw.exec('DROP TABLE IF EXISTS bookmark_ledger;');
+    raw.exec('PRAGMA user_version = 1;');
+    raw.close();
+
+    // Reopen via the production factory — should run the v2 migration.
+    const upgraded = createSqliteQueue(dbPath);
+    expect(upgraded.listJobs({ runId })).toHaveLength(1);
+    expect(() =>
+      upgraded.upsertBookmark({
+        entryId: 'a',
+        tweetId: '1',
+        source: 'bookmarks',
+        sourceUrl: 'u',
+        text: 't',
+        capturedAt: '2026-01-01T00:00:00.000Z',
+      }),
+    ).not.toThrow();
+    upgraded.close();
   });
 });

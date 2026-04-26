@@ -9,6 +9,27 @@ export {
 } from './constants.js';
 export type { CostInput, EnqueueInput, FailInput, JobQueue, QueueStats } from './queue.js';
 export { createSqliteQueue } from './queue.js';
-export { SCHEMA_SQL, SCHEMA_VERSION } from './schema.js';
-export type { AttemptRecord, CostEntry, Job, QueueErrorCode, Run } from './types.js';
-export { JobStatusSchema, QueueError, StageSchema } from './types.js';
+export { MIGRATIONS, SCHEMA_SQL, SCHEMA_VERSION } from './schema.js';
+export type {
+  AttemptRecord,
+  BookmarkEntry,
+  BookmarkLedgerStats,
+  BookmarkListFilter,
+  BookmarkSource,
+  BookmarkStatus,
+  BookmarkUpdateFields,
+  BookmarkUpsertInput,
+  CostEntry,
+  Job,
+  QueueErrorCode,
+  Run,
+} from './types.js';
+export {
+  BOOKMARK_SOURCES,
+  BOOKMARK_STATUSES,
+  BookmarkSourceSchema,
+  BookmarkStatusSchema,
+  JobStatusSchema,
+  QueueError,
+  StageSchema,
+} from './types.js';

@@ -57,6 +57,79 @@ export interface CostEntry {
   costUsd: number;
 }
 
+export const BOOKMARK_SOURCES = ['bookmarks', 'likes', 'posts'] as const;
+export type BookmarkSource = (typeof BOOKMARK_SOURCES)[number];
+
+export const BOOKMARK_STATUSES = ['new', 'synced', 'failed', 'skipped'] as const;
+export type BookmarkStatus = (typeof BOOKMARK_STATUSES)[number];
+
+export const BookmarkSourceSchema = z.enum(BOOKMARK_SOURCES);
+export const BookmarkStatusSchema = z.enum(BOOKMARK_STATUSES);
+
+/**
+ * One row in the bookmark_ledger. Carries everything xs bookmarks sync
+ * needs to feed the existing pipeline without re-scraping: tweet text,
+ * author, embedded URLs, captured time. Status moves new → synced |
+ * failed | skipped as the pipeline runs.
+ */
+export interface BookmarkEntry {
+  entryId: string;
+  tweetId: string;
+  source: BookmarkSource;
+  sourceUrl: string;
+  author: string | null;
+  text: string;
+  urls: string[];
+  capturedAt: string;
+  tweetCreatedAt: string | null;
+  status: BookmarkStatus;
+  syncedAt: string | null;
+  runId: string | null;
+  jobId: string | null;
+  attempts: number;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Input for upsertBookmark — minimal, the queue assigns timestamps + status defaults. */
+export interface BookmarkUpsertInput {
+  entryId: string;
+  tweetId: string;
+  source: BookmarkSource;
+  sourceUrl: string;
+  text: string;
+  author?: string | null;
+  urls?: string[];
+  capturedAt: string;
+  tweetCreatedAt?: string | null;
+}
+
+export interface BookmarkListFilter {
+  status?: BookmarkStatus;
+  source?: BookmarkSource;
+  order?: 'oldest' | 'newest';
+  limit?: number;
+}
+
+export interface BookmarkUpdateFields {
+  status?: BookmarkStatus;
+  syncedAt?: string | null;
+  runId?: string | null;
+  jobId?: string | null;
+  lastError?: string | null;
+  /** When true, increment attempts by 1 atomically. */
+  bumpAttempts?: boolean;
+}
+
+export interface BookmarkLedgerStats {
+  total: number;
+  new: number;
+  synced: number;
+  failed: number;
+  skipped: number;
+}
+
 export type QueueErrorCode =
   | 'NOT_FOUND'
   | 'INVALID_STATE'
