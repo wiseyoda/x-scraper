@@ -43,7 +43,39 @@ Not a numbered spike — a sanity check on `~/.config/x-scraper/.env`. `pnpm spi
 
 **Fixtures:** `spikes/fixtures/*.json` are gitignored — they contain real bookmark data and the captured auth headers.
 
-## Spike 3 — Kuzu schema, vector index, traversal (PASSED 2026-04-26)
+## Spike 3 — Graph DB pivot: Kùzu → RyuGraph → Neo4j (PASSED 2026-04-26)
+
+**Final pick: Neo4j Community 2026.04**, installed via `brew install neo4j; brew services start neo4j`. Connection: `bolt://localhost:7687`, creds in `~/.config/x-scraper/.env`.
+
+**Warm-cache benchmark (1k claims, 80 concepts, 2k MENTIONS edges):**
+
+| Op                                                        | Time      | Budget                      |
+| --------------------------------------------------------- | --------- | --------------------------- |
+| Vector top-10 (HNSW, native `db.index.vector.queryNodes`) | **12 ms** | < 100 ms ✓                  |
+| 2-hop Claim→Concept→Claim traversal                       | **26 ms** | < 100 ms ✓                  |
+| Insert 1k claims w/ 1536-dim embeddings                   | 376 ms    | (38× faster than ryugraph)  |
+| Insert 1k EXTRACTED_FROM edges                            | 28 ms     | (160× faster than ryugraph) |
+| Insert 2k MENTIONS edges                                  | 46 ms     | (200× faster than ryugraph) |
+
+**Pivot history:**
+
+1. **Kùzu (original pick).** Worked in the first pass — vector top-10 21ms, 2-hop 4ms. Then we discovered Kùzu Inc. was acquired by Apple in Oct 2025 and the npm package was officially deprecated. Production-grade ≠ "no longer supported". Pivoted.
+
+2. **RyuGraph (kuzu fork).** npm-published, drop-in API. Schema and traversal worked, but: (a) the GitHub fork has had no commits in 5+ months, and (b) the vector extension CDN at `extension.ryugraph.io` was unreachable, so `INSTALL VECTOR` fails and `CREATE_VECTOR_INDEX` is unavailable. Brute-force `array_cosine_similarity` ran in 21ms on 1k entities, but at our target 10k+ scale that degrades and we lose the HNSW path entirely. Same dead-fork smell we were trying to avoid. Pivoted again.
+
+3. **Neo4j Community 2026.04 (final).** Brew formula `neo4j 2026.04.0` shipped this month. Native HNSW (`CREATE VECTOR INDEX ... OPTIONS { indexConfig: { vector.dimensions: 1536, vector.similarity_function: 'cosine' }}`), full Cypher, GDS for Leiden, first-party Apache-2.0 `neo4j-driver` (v6.0.1, Oct 2025). JVM daemon — accepted as the cost of getting a maintained product. `brew services start neo4j` makes it set-and-forget. Initial password reset is the one manual step (captured in env file).
+
+**Production code TODOs (carry-overs that survived all three pivots):**
+
+- `packages/graph` adapter pattern keeps the Cypher dialect at the port boundary so future swaps to Memgraph/FalkorDB/SQLite+vec are a one-file change.
+- Use `UNWIND` with batched parameter rows for any insert >50 (proved 38–200× faster than per-row `CREATE`).
+- HNSW index construction is async — wait for population before benchmarking; production code should poll `CALL db.indexes()` rather than sleep.
+- Always use `neo4j.int(...)` for integer params Bolt expects as 64-bit. Float arrays go through directly.
+- Wipe + reset between test runs uses `MATCH (n) DETACH DELETE n` + `DROP INDEX/CONSTRAINT IF EXISTS`.
+
+**ARCHITECTURE.md updated** with the swap and the rationale; the row "Graph DB" now reads Neo4j Community.
+
+## Spike 3 (deprecated; kept for archaeology) — Kùzu schema, vector index, traversal
 
 **Bindings load on Darwin arm64.** `pnpm` ignored kuzu's install script by default — solved by adding `pnpm.onlyBuiltDependencies: ['esbuild', 'kuzu']` to package.json so future `pnpm install` runs the prebuilt-binary copy step. Prebuilt `kuzujs-darwin-arm64.node` ships with the package.
 

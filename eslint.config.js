@@ -35,7 +35,7 @@ export default tseslint.config(
       'no-magic-numbers': [
         'warn',
         {
-          ignore: [-1, 0, 1, 2, 100, 1000],
+          ignore: [-1, 0, 1, 2, 5, 10, 30, 60, 100, 1000],
           ignoreArrayIndexes: true,
           ignoreDefaultValues: true,
           enforceConst: true,
