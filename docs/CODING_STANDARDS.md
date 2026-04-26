@@ -59,6 +59,13 @@ These standards are enforced by tooling where possible (eslint, prettier, tsc st
 - Streaming I/O for files >1MB.
 - HNSW vector index parameters chosen with a benchmark in `bench/`, not by gut.
 
+## LLM call defaults
+
+- **Be generous with `max_tokens`.** Default to 16k–32k for extraction-style calls, 4k–8k only for short reconciliation/decision prompts. A truncated response wastes the whole call. Cost-of-tokens-not-emitted is zero.
+- **No artificial MIN\_ thresholds in production prompts** (e.g. "extract at least 5 claims"). Let the model extract what's actually present; gate downstream on quality, not quantity.
+- Use prompt caching (`cache_control: { type: 'ephemeral' }`) on the schema/system portion of any extraction call. Only the per-document portion should be uncached.
+- Always check `stop_reason`. `max_tokens` ⇒ retry with a higher cap or split input. `refusal` ⇒ flag, don't silently treat as empty.
+
 ## Testing
 
 - Public package APIs have ≥80% statement coverage via Vitest.

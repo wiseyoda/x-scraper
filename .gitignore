@@ -30,10 +30,13 @@ pnpm-debug.log*
 .env.local
 .env.*.local
 
-# Spike scratch / fixtures that shouldn't ship
+# Spike scratch / profile data / live fixtures that shouldn't ship.
+# Fixtures contain real bookmark data and (in *.captured.json) auth headers.
+# Scrubbed golden fixtures used by tests live in golden-corpus/, not here.
 spikes/tmp/
 spikes/x-profile/
 spikes/auth/
+spikes/fixtures/
 
 # Vault & runtime artifacts (these live in ~/Documents/x-scraper-vault)
 vault/
