@@ -14,6 +14,9 @@ importers:
       '@eslint/js':
         specifier: ^9.39.4
         version: 9.39.4
+      '@hono/node-server':
+        specifier: ^1.13.7
+        version: 1.19.14(hono@4.12.15)
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.3.6)
@@ -44,6 +47,9 @@ importers:
       eslint-plugin-simple-import-sort:
         specifier: ^12.1.1
         version: 12.1.1(eslint@9.39.4)
+      hono:
+        specifier: ^4.7.0
+        version: 4.12.15
       jsdom:
         specifier: ^29.0.2
         version: 29.0.2
@@ -308,6 +314,40 @@ importers:
       '@x-scraper/llm':
         specifier: workspace:*
         version: link:../llm
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.17
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.19.17)(jsdom@29.0.2)
+
+  packages/rest:
+    dependencies:
+      '@hono/node-server':
+        specifier: ^1.13.7
+        version: 1.19.14(hono@4.12.15)
+      '@x-scraper/core':
+        specifier: workspace:*
+        version: link:../core
+      '@x-scraper/mcp-server':
+        specifier: workspace:*
+        version: link:../mcp-server
+      '@x-scraper/queue':
+        specifier: workspace:*
+        version: link:../queue
+      '@x-scraper/vault':
+        specifier: workspace:*
+        version: link:../vault
+      hono:
+        specifier: ^4.7.0
+        version: 4.12.15
       zod:
         specifier: ^4.3.6
         version: 4.3.6

@@ -54,7 +54,12 @@ export default tseslint.config(
   },
   {
     // CLI binaries print to stdout — that's their entire job.
-    files: ['packages/cli/src/bin.ts', 'packages/cli/src/commands/**/*.ts'],
+    files: [
+      'packages/cli/src/bin.ts',
+      'packages/cli/src/commands/**/*.ts',
+      'packages/rest/src/bin.ts',
+      'packages/mcp-server/src/bin.ts',
+    ],
     rules: {
       'no-console': 'off',
     },
