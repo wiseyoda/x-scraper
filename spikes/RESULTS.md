@@ -42,7 +42,28 @@ Not a numbered spike — a sanity check on `~/.config/x-scraper/.env`. `pnpm spi
 
 **Fixtures:** `spikes/fixtures/*.json` are gitignored — they contain real bookmark data and the captured auth headers.
 
-## Spike 3 — TBD
+## Spike 3 — Kuzu schema, vector index, traversal (PASSED 2026-04-26)
+
+**Bindings load on Darwin arm64.** `pnpm` ignored kuzu's install script by default — solved by adding `pnpm.onlyBuiltDependencies: ['esbuild', 'kuzu']` to package.json so future `pnpm install` runs the prebuilt-binary copy step. Prebuilt `kuzujs-darwin-arm64.node` ships with the package.
+
+**Schema works.** Created `Concept`, `Source`, `Claim` node tables with `Claim.embedding FLOAT[1536]` and `EXTRACTED_FROM`, `MENTIONS` rel tables. The vector extension (`INSTALL vector; LOAD EXTENSION vector;`) loaded cleanly. HNSW index created via `CALL CREATE_VECTOR_INDEX('Claim', 'claim_embed_idx', 'embedding')`.
+
+**Performance hits the budget on the read path:**
+| Op | Time | Budget |
+|---|---|---|
+| Vector top-10 (HNSW) | 20.93 ms | < 100 ms ✓ |
+| 2-hop Claim→Concept→Claim | 4.26 ms | < 100 ms ✓ |
+
+**Performance is awful on the write path** because the spike uses one CREATE-per-row with embedded literals: 14.5s for 1k claims, 4.5s for 1k edges, 3.9s for index creation. Production code MUST use prepared statements + parameterized vector binds + `COPY FROM` for bulk; expect 50-100x speedup. This is a known kuzu pattern, not a stack risk — the read path is what matters.
+
+**Quirk: kuzu 0.11.3 segfaults on shutdown.** Process exits with code 139 even after `await conn.close(); await db.close()`. Worked around with `process.exit(0)`. Watch for fixes in newer 0.x releases; if it persists into the production graph package, isolate the connection lifecycle to a child process or accept the noisy exit.
+
+**Path gotcha:** Kuzu refused our pre-created directory. Fix: ensure the *parent* exists, leave the database path itself for kuzu to create.
+
+**Schema/Cypher reference points:**
+- Vector index call shape: `CALL QUERY_VECTOR_INDEX('Claim', 'claim_embed_idx', $vec, $k) RETURN node.id, distance`.
+- Brute-force fallback uses `array_cosine_similarity(embedding, $vec)` — useful when the index isn't built yet.
+- Multi-statement queries return `QueryResult[]`; single statements return `QueryResult`. Spike has a `single()` helper to normalize.
 
 ## Spike 4 — TBD
 
