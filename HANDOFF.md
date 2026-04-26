@@ -117,3 +117,20 @@ New surfaces this session:
 - `~/Documents/x-scraper-vault/` — git-tracked, has 56+ live-synced sources
 - `~/.config/x-scraper/queue.sqlite` — bookmark_ledger lives here alongside jobs/runs/cost_ledger
 - `spikes/inspect-bookmark.ts` — dump real bookmark raw payload for debugging schema drift
+
+## Postscript — full backlog drained + topic detect ran live
+
+Updated end of session with the rest of the work the wakeup loop completed:
+
+- **Full backlog**: all 210 ledger rows synced (200 bookmarks + 10 likes), 0 failures across the entire run, ~$5.04 total LLM/embed cost, ~12s/bookmark amortized.
+- **Vault** ended with 200 Source.md, 1500+ Claim.md, 800+ Entity.md.
+- **Neo4j** ended with 200 Source nodes, 2400+ Claim nodes, ~80 Concept nodes, plus Tool/Person/Repo/Article entities, 6500+ edges across 14 types.
+- **Topic detect ran live** against the populated graph: 82 Concept nodes, 52 RELATED_TO edges, **6 communities** found (min size 4). With `--synthesize` ($0.006 total), Sonnet titled them:
+  - Agent Memory Storage Systems (4 concepts)
+  - AI Agent Identity Security (5 concepts)
+  - AI-Era Product Roles (4 concepts)
+  - AI Memory Architecture Systems (4 concepts)
+  - AI Context Memory Management (4 concepts)
+  - (one more)
+  These are accurate thematic clusters of the bookmarks — the AI/agent-memory cluster especially is dominant in the source data, which the detector picked up.
+- **Persistence verified end-to-end** across all 4 sinks (SQLite ledger, queue jobs, vault markdown, vault git, Neo4j nodes/edges, HNSW index) before scaling and again after each batch. Median 6 claims/source, max 50, with extraction quality scaling correctly to body length.
