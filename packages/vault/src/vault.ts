@@ -177,18 +177,20 @@ export const createMarkdownVault = (root: string): VaultStore => {
   };
 
   const read = async (id: string, type: EntityType): Promise<VaultRecord> => {
-    // Source.md is sharded by content_type — when the caller hasn't
-    // told us which subfolder to look in, probe each candidate (the
-    // flat sources/ for legacy files, plus all sources/<kind>/ subdirs).
+    // Source.md is sharded by content_type — probe routed subfolders
+    // first so a re-written Source (now in sources/<kind>/) wins over
+    // any legacy flat copy left from a pre-routing vault. Falling back
+    // to the flat sources/ last keeps reindex working on legacy vaults
+    // until they're migrated.
     const candidateDirs: string[] =
       type === 'Source'
         ? [
-            VAULT_DIRS.sources,
             VAULT_DIRS.sourcesArticles,
             VAULT_DIRS.sourcesTweets,
             VAULT_DIRS.sourcesRepos,
             VAULT_DIRS.sourcesVideos,
             VAULT_DIRS.sourcesPdfs,
+            VAULT_DIRS.sources,
           ]
         : [dirForEntityType(type)];
     let raw: string | null = null;
@@ -251,17 +253,27 @@ export const createMarkdownVault = (root: string): VaultStore => {
       type === undefined
         ? new Set<string>(allDirs.filter((d) => !d.startsWith('.')))
         : type === 'Source'
-          ? new Set<string>([
-              VAULT_DIRS.sources,
+          ? // Iterate routed subdirs first so the dedupe-by-id below
+            // prefers the routed copy of any Source whose flat legacy
+            // sibling still exists in sources/.
+            new Set<string>([
               VAULT_DIRS.sourcesArticles,
               VAULT_DIRS.sourcesTweets,
               VAULT_DIRS.sourcesRepos,
               VAULT_DIRS.sourcesVideos,
               VAULT_DIRS.sourcesPdfs,
+              VAULT_DIRS.sources,
             ])
           : new Set<string>([dirForEntityType(type)]);
     const all: VaultListEntry[] = [];
-    for (const d of dirs) all.push(...(await listInDir(d, type)));
+    const seenIds = new Set<string>();
+    for (const d of dirs) {
+      for (const entry of await listInDir(d, type)) {
+        if (seenIds.has(entry.id)) continue;
+        seenIds.add(entry.id);
+        all.push(entry);
+      }
+    }
     return all.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
   };
 

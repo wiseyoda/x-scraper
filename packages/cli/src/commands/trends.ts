@@ -117,10 +117,14 @@ export const runTrends = async (options: TrendsOptions = {}): Promise<TrendsResu
        ORDER BY count DESC LIMIT $top`,
       { top: neo4j.default.int(topN) },
     );
+    // T20 materializes a Person node per byline + AUTHORED_BY edge. The
+    // raw byline is also stored as a flat property under the literal key
+    // `host_metadata.byline` (not a nested map), so dotted access via
+    // s.host_metadata.byline always returns null. Querying the edge is
+    // both correct and faster.
     const topAuthors = await session.run(
-      `MATCH (s:Source)
-       WHERE s.host_metadata.byline IS NOT NULL
-       RETURN s.host_metadata.byline AS key, count(s) AS count
+      `MATCH (s:Source)-[:AUTHORED_BY]->(p:Person)
+       RETURN p.name AS key, count(DISTINCT s) AS count
        ORDER BY count DESC LIMIT $top`,
       { top: neo4j.default.int(topN) },
     );

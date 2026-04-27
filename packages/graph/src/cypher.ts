@@ -202,7 +202,10 @@ ON CREATE SET r.cooccurrence_count = 1,
               r.sources = [$sourceId],
               r.created_at = $now,
               r.updated_at = $now
-ON MATCH SET r.cooccurrence_count = coalesce(r.cooccurrence_count, 0) + 1,
+ON MATCH SET r.cooccurrence_count = CASE WHEN $sourceId IN coalesce(r.sources, [])
+                                         THEN coalesce(r.cooccurrence_count, 0)
+                                         ELSE coalesce(r.cooccurrence_count, 0) + 1
+                                    END,
              r.sources = CASE WHEN $sourceId IN coalesce(r.sources, [])
                               THEN r.sources
                               ELSE coalesce(r.sources, []) + $sourceId
