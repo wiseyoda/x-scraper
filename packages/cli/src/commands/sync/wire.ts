@@ -17,8 +17,10 @@ import {
   createArticleIngestor,
   createPdfIngestor,
   createRepoIngestor,
+  createXArticleIngestor,
   createYouTubeIngestor,
   type Ingestor,
+  type XArticleSession,
 } from '@x-scraper/ingestor';
 import type { LlmCostSink } from '@x-scraper/llm';
 import { createClaudeProvider } from '@x-scraper/llm';
@@ -26,6 +28,7 @@ import { createLogger, jsonLineSink } from '@x-scraper/observability';
 import type { JobQueue } from '@x-scraper/queue';
 import { createSqliteQueue } from '@x-scraper/queue';
 import type { ErCandidateFinder, ExistingClaim } from '@x-scraper/reconciler';
+import { closeSession, openAuthenticatedSession } from '@x-scraper/scraper';
 import { createMarkdownVault } from '@x-scraper/vault';
 
 import type { ClaimFinder, SourceItem, SyncDeps } from './types.js';
@@ -120,7 +123,24 @@ export const wireSyncDeps = async (
   });
 
   const githubToken = process.env.GITHUB_TOKEN ?? env.GITHUB_TOKEN;
+  // X Article ingestor (T14): Patchright-rendered SPA scrape for
+  // x.com/<user>/article/<id> URLs. Order BEFORE the generic article
+  // ingestor so it wins the matches() race for x.com URLs. The session
+  // is opened lazily — first matching URL triggers a Patchright launch.
+  const xArticleIngestor = createXArticleIngestor({
+    openSession: async (): Promise<XArticleSession> => {
+      const profileDir =
+        process.env.XSCRAPER_PROFILE_DIR ??
+        `${process.env.HOME ?? ''}/.config/x-scraper/browser-profile`;
+      const session = await openAuthenticatedSession({ profileDir });
+      return {
+        page: session.page as unknown as XArticleSession['page'],
+        close: () => closeSession(session),
+      };
+    },
+  });
   const ingestors: Ingestor[] = [
+    xArticleIngestor,
     createPdfIngestor(),
     createRepoIngestor(githubToken === undefined ? {} : { token: githubToken }),
     createYouTubeIngestor(),
@@ -179,6 +199,13 @@ export const wireSyncDeps = async (
   const cleanup = async (): Promise<void> => {
     queue.close();
     await graph.close();
+    // Release any long-lived ingestor resources (Patchright session for
+    // the x-article ingestor, etc).
+    for (const ing of ingestors) {
+      if (ing.dispose !== undefined) {
+        await ing.dispose().catch(() => undefined);
+      }
+    }
   };
 
   return { deps, cleanup };

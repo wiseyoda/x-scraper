@@ -149,7 +149,14 @@ export const createMarkdownVault = (root: string): VaultStore => {
 
   const write = async (record: VaultRecord): Promise<string> => {
     const fm = FrontmatterSchema.parse(record.frontmatter);
-    const dir = dirForEntityType(fm.type);
+    // For Source records, route by content_type into the matching
+    // sources/<kind>/ subfolder so an article-typed source lands beside
+    // its Article entity-stub neighbours instead of in the flat sources/.
+    const contentType =
+      fm.type === 'Source' && 'content_type' in fm && typeof fm.content_type === 'string'
+        ? (fm.content_type)
+        : undefined;
+    const dir = dirForEntityType(fm.type, contentType);
     const file = safeJoin(root, dir, fileBasename(fm.id));
     const text = formatDocument({
       frontmatter: fm,
@@ -170,9 +177,26 @@ export const createMarkdownVault = (root: string): VaultStore => {
   };
 
   const read = async (id: string, type: EntityType): Promise<VaultRecord> => {
-    const dir = dirForEntityType(type);
-    const file = safeJoin(root, dir, fileBasename(id));
-    const raw = await readJsonSafely(file);
+    // Source.md is sharded by content_type — when the caller hasn't
+    // told us which subfolder to look in, probe each candidate (the
+    // flat sources/ for legacy files, plus all sources/<kind>/ subdirs).
+    const candidateDirs: string[] =
+      type === 'Source'
+        ? [
+            VAULT_DIRS.sources,
+            VAULT_DIRS.sourcesArticles,
+            VAULT_DIRS.sourcesTweets,
+            VAULT_DIRS.sourcesRepos,
+            VAULT_DIRS.sourcesVideos,
+            VAULT_DIRS.sourcesPdfs,
+          ]
+        : [dirForEntityType(type)];
+    let raw: string | null = null;
+    for (const dir of candidateDirs) {
+      const file = safeJoin(root, dir, fileBasename(id));
+      raw = await readJsonSafely(file);
+      if (raw !== null) break;
+    }
     if (raw === null) {
       throw new CoreError(`vault entry not found: ${type} ${id}`, 'NOT_FOUND');
     }
@@ -226,7 +250,16 @@ export const createMarkdownVault = (root: string): VaultStore => {
     const dirs =
       type === undefined
         ? new Set<string>(allDirs.filter((d) => !d.startsWith('.')))
-        : new Set<string>([dirForEntityType(type)]);
+        : type === 'Source'
+          ? new Set<string>([
+              VAULT_DIRS.sources,
+              VAULT_DIRS.sourcesArticles,
+              VAULT_DIRS.sourcesTweets,
+              VAULT_DIRS.sourcesRepos,
+              VAULT_DIRS.sourcesVideos,
+              VAULT_DIRS.sourcesPdfs,
+            ])
+          : new Set<string>([dirForEntityType(type)]);
     const all: VaultListEntry[] = [];
     for (const d of dirs) all.push(...(await listInDir(d, type)));
     return all.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());

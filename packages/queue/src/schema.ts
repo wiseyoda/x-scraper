@@ -18,7 +18,7 @@
  * with explicit data-preserving SQL.
  */
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const SCHEMA_SQL = `
 PRAGMA journal_mode = WAL;
@@ -182,7 +182,13 @@ export const MIGRATIONS: Record<number, string> = {
       ON bookmark_ledger (parent_entry_id);
     CREATE INDEX IF NOT EXISTS bookmark_ledger_source_url_idx
       ON bookmark_ledger (source_url);
-    -- T22: cost_ledger entry_id attribution.
+  `,
+  4: `
+    -- T22: cost_ledger entry_id attribution. Originally folded into the
+    -- v3 migration mid-session; some local dbs reached user_version=3
+    -- before that fold-in landed. v4 backfills the column for any db
+    -- that's stuck at v3 without it. Idempotent via the column-existence
+    -- check in runMigration.
     ALTER TABLE cost_ledger ADD COLUMN entry_id TEXT;
     CREATE INDEX IF NOT EXISTS ledger_entry_idx ON cost_ledger (entry_id);
   `,

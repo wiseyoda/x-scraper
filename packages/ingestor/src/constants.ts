@@ -21,5 +21,19 @@ export const GITHUB_API_VERSION = '2022-11-28';
 export const YOUTUBE_HOSTS = ['youtube.com', 'www.youtube.com', 'youtu.be', 'm.youtube.com'];
 
 /** Source kinds we ingest. Mirrors `EntityType` for the relevant subset. */
-export const INGESTOR_KINDS = ['article', 'repo', 'youtube', 'pdf'] as const;
+export const INGESTOR_KINDS = ['article', 'x-article', 'repo', 'youtube', 'pdf'] as const;
 export type IngestorKind = (typeof INGESTOR_KINDS)[number];
+
+/** X Article ingestor (T14 follow-on). Patchright-rendered SPA scrape. */
+export const X_ARTICLE_NAV_TIMEOUT_MS = 30_000;
+export const X_ARTICLE_RENDER_WAIT_MS = 3_000;
+export const X_ARTICLE_BODY_SELECTOR = '[data-testid="twitterArticleReadView"]';
+export const X_ARTICLE_TITLE_SELECTOR = '[data-testid="twitter-article-title"]';
+export const X_ARTICLE_CONTENT_SELECTOR = '[data-testid="twitterArticleRichTextView"]';
+export const X_ARTICLE_USERCELL_SELECTOR = '[data-testid="UserCell"]';
+/** Matches both /<user>/article/<id> and /i/article/<id> on either x.com or twitter.com. */
+export const X_ARTICLE_URL_RE =
+  /^https?:\/\/(?:www\.|mobile\.)?(?:x|twitter)\.com\/(?:i\/)?[^/]+\/article\/\d+/i;
+/** Tweet permalink — we deliberately don't ingest these as articles. */
+export const X_TWEET_URL_RE =
+  /^https?:\/\/(?:www\.|mobile\.)?(?:x|twitter)\.com\/[^/]+\/status\/\d+/i;

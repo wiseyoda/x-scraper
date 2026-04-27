@@ -17,6 +17,8 @@ export type { RepoConfig } from './repo.js';
 export { createRepoIngestor, parseGitHubUrl } from './repo.js';
 export type { IngestedSource, Ingestor, IngestorErrorCode } from './types.js';
 export { IngestorError } from './types.js';
+export type { XArticleConfig, XArticlePage, XArticleSession } from './x-article.js';
+export { createXArticleIngestor, isXArticleUrl } from './x-article.js';
 export type { YouTubeConfig } from './youtube.js';
 export {
   captionsXmlToText,

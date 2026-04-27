@@ -23,8 +23,14 @@ import type { JobContext, SourceItem, SyncDeps, SyncOptions } from './types.js';
 const PROMPT_VERSION_DEFAULT = { extraction: 1, reconciliation: 1, embedding: 1 };
 
 const TWEET_HOST_RE = /^https?:\/\/(?:www\.|mobile\.)?(?:x|twitter)\.com\//i;
+// X Articles (long-form posts) live at x.com/<user>/article/<id> or
+// x.com/i/article/<id>. Must be detected BEFORE the tweet-host check
+// because the host is also x.com.
+const X_ARTICLE_PATH_RE =
+  /^https?:\/\/(?:www\.|mobile\.)?(?:x|twitter)\.com\/(?:i\/)?[^/]+\/article\/\d+/i;
 
 const inferContentType = (url: string): 'tweet' | 'article' | 'repo' | 'video' | 'pdf' => {
+  if (X_ARTICLE_PATH_RE.test(url)) return 'article';
   if (TWEET_HOST_RE.test(url)) return 'tweet';
   const lower = url.toLowerCase();
   if (lower.endsWith('.pdf')) return 'pdf';

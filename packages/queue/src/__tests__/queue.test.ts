@@ -127,6 +127,30 @@ describe('createSqliteQueue', () => {
     expect(queue.listDlq().map((j) => j.jobId)).toContain(jobId);
   });
 
+  it('failStage with a permanent error code goes straight to dead, ignoring maxAttempts', () => {
+    const runId = queue.startRun();
+    const jobId = queue.enqueue({
+      runId,
+      sourceId: 'src_perm',
+      sourceKind: 'bookmarks',
+      idempotencyKey: 'k',
+    });
+    const job = queue.claimNext();
+    if (!job?.currentAttemptId) throw new Error('expected lease token');
+    queue.failStage({
+      jobId,
+      stage: STAGES[0],
+      attemptId: job.currentAttemptId,
+      errorCode: 'PARSE',
+      errorMsg: 'Readability returned null',
+      maxAttempts: 5, // would normally permit 5 attempts; PERMANENT short-circuits
+    });
+    const after = queue.listJobs({ runId })[0];
+    expect(after?.status).toBe('dead');
+    expect(after?.attempts).toBe(1); // single attempt, no retry burned
+    expect(queue.listDlq().map((j) => j.jobId)).toContain(jobId);
+  });
+
   it('retryFailed reopens a DLQ job and resets attempts', () => {
     const runId = queue.startRun();
     const jobId = queue.enqueue({

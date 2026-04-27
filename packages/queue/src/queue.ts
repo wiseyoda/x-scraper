@@ -222,6 +222,31 @@ export interface JobQueue {
  */
 const ALTER_ADD_COLUMN_RE = /ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)\b/i;
 
+/**
+ * Error codes that won't get better on retry. failStage short-circuits
+ * to dead instead of scheduling a retry. Saves the backoff window
+ * (~90s on a 3-attempt run) per permanently-broken source.
+ *
+ * - PARSE: Readability returned null, JSON parse failed, etc — input
+ *   shape is wrong, not transient.
+ * - DIM_MISMATCH: embedding dims wrong, won't change.
+ * - INVALID_INPUT: caller bug, not transient.
+ * - INVALID_FRONTMATTER: vault validation failed.
+ * - SCHEMA: graph init wasn't run.
+ * - STAGE_OUT_OF_ORDER: dispatcher bug.
+ *
+ * Things NOT in this list (transient, retried): network errors, rate
+ * limits, provider 5xx, lease conflicts.
+ */
+const PERMANENT_ERROR_CODES = new Set<string>([
+  'PARSE',
+  'DIM_MISMATCH',
+  'INVALID_INPUT',
+  'INVALID_FRONTMATTER',
+  'SCHEMA',
+  'STAGE_OUT_OF_ORDER',
+]);
+
 const columnExists = (db: DatabaseType, table: string, column: string): boolean => {
   const rows = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
   return rows.some((r) => r.name === column);
@@ -588,7 +613,11 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
         );
       }
       const newAttempts = job.attempts + 1;
-      if (newAttempts >= max) {
+      // Permanent errors (parse failures, dim mismatches, schema bugs)
+      // will fail the same way on every retry — skip the backoff and go
+      // straight to dead so a single bad URL doesn't burn 90s of waits.
+      const isPermanent = PERMANENT_ERROR_CODES.has(input.errorCode);
+      if (isPermanent || newAttempts >= max) {
         stmts.markFailed.run('dead', null, input.errorMsg, now, input.jobId);
         stmts.insertDlq.run(input.jobId, input.stage, input.errorCode, input.errorMsg, now);
       } else {

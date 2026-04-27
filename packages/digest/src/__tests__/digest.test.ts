@@ -78,7 +78,7 @@ describe('buildDigest', () => {
   it('only counts records inside the 7-day window', async () => {
     // Write a record, then back-date its file mtime to two weeks ago.
     await vault.write({ frontmatter: sourceFM('src_old00001'), body: 'old' });
-    const oldFile = path.join(workDir, 'vault', 'sources', 'src_old00001.md');
+    const oldFile = path.join(workDir, 'vault', 'sources', 'articles', 'src_old00001.md');
     const oldDate = new Date(NOW.getTime() - 14 * 24 * 60 * 60 * 1_000);
     await fs.utimes(oldFile, oldDate, oldDate);
 
@@ -92,7 +92,7 @@ describe('buildDigest', () => {
   it('uses an exactly-7-day window (not "previous ISO week" rounding)', async () => {
     const sunday = new Date('2026-04-26T18:00:00Z');
     await vault.write({ frontmatter: sourceFM('src_eight000'), body: 'edge' });
-    const file = path.join(workDir, 'vault', 'sources', 'src_eight000.md');
+    const file = path.join(workDir, 'vault', 'sources', 'articles', 'src_eight000.md');
     const eightDaysBack = new Date(sunday.getTime() - 8 * 24 * 60 * 60 * 1_000);
     await fs.utimes(file, eightDaysBack, eightDaysBack);
     const artifact = await buildDigest(vault, { now: sunday });

@@ -31,6 +31,10 @@ export interface Ingestor {
   matches: (url: string) => boolean;
   /** Pull the source. May throw IngestorError on hard failures. */
   ingest: (url: string) => Promise<IngestedSource>;
+  /** Optional: release any held resources (browser sessions, sockets).
+   *  The dispatcher's wire layer calls this in cleanup() so a long-lived
+   *  Patchright session doesn't outlive the sync run. */
+  dispose?: () => Promise<void>;
 }
 
 export type IngestorErrorCode =

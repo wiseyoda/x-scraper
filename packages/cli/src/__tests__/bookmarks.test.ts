@@ -316,15 +316,15 @@ describe('runBookmarksSync', () => {
     expect(skipped?.runId).toBe('skip-link-only');
     expect(skipped?.costUsd).toBe(0);
 
-    // Stub Source.md present in vault with skipReason metadata. Find by
-    // scanning sources/ for src_*.md files (vault.init writes README etc.).
-    const sourcesDir = path.join(config.vaultDir, 'sources');
-    const files = (await fs.readdir(sourcesDir)).filter((f) => f.startsWith('src_'));
+    // Stub Source.md lands under sources/tweets/ (content_type='tweet'
+    // routing). Find by scanning for src_*.md files.
+    const tweetsDir = path.join(config.vaultDir, 'sources/tweets');
+    const files = (await fs.readdir(tweetsDir)).filter((f) => f.startsWith('src_'));
     expect(files.length).toBe(1);
     const firstFile = files[0];
     expect(firstFile).toBeDefined();
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const stub = await fs.readFile(path.join(sourcesDir, firstFile!), 'utf8');
+    const stub = await fs.readFile(path.join(tweetsDir, firstFile!), 'utf8');
     expect(stub).toContain('skipReason: link_only_tweet');
     expect(stub).toContain('content_type: tweet');
   });

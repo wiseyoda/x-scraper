@@ -13,6 +13,13 @@ const isTrackingParam = (name: string): boolean => {
 export const canonicalizeUrl = (input: string): string => {
   const url = new URL(input);
   url.hostname = url.hostname.toLowerCase();
+  // Normalize http→https. Otherwise dedupe checks see the same article
+  // twice when one tweet quotes the http variant and another quotes
+  // the https — discovered when two X Articles got synced with
+  // identical content_hash but distinct entry_ids.
+  if (url.protocol === 'http:') {
+    url.protocol = 'https:';
+  }
   url.hash = '';
   for (const key of [...url.searchParams.keys()]) {
     if (isTrackingParam(key)) url.searchParams.delete(key);
