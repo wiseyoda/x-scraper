@@ -410,10 +410,13 @@ describe('runSync', () => {
     expect(result.jobsCompleted).toBe(1);
 
     const derived = deps.queue.listBookmarks({ sourceKind: 'derived' });
+    // t.co shortlinks are now filtered by fetchLinksStage — Readability
+    // gets nothing from a t.co redirect page, so they only land as
+    // dead rows. The test fixture intentionally includes one to verify
+    // the guard fires.
     expect(derived.map((d) => d.sourceUrl).sort()).toEqual([
       'https://example.com/a',
       'https://github.com/x/y',
-      'https://t.co/abc',
     ]);
     for (const d of derived) {
       expect(d.parentEntryId).toBe('tweet-parent');
@@ -427,7 +430,7 @@ describe('runSync', () => {
     await runSync(deps, { source: 'bookmarks' });
     deps.queue.close();
     const after = createSqliteQueue(queuePath).listBookmarks({ sourceKind: 'derived' });
-    expect(after.length).toBe(3);
+    expect(after.length).toBe(2);
   });
 
   it('auto-ingests entity URLs as derived ledger rows (Repo with github alias)', async () => {

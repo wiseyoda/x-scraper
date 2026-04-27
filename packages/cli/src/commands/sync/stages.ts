@@ -94,6 +94,17 @@ export const fetchLinksStage = async (deps: SyncDeps, ctx: JobContext): Promise<
     // shape that the X Article ingestor handles, and dropping it here
     // would prevent the only path that auto-ingests linked X Articles.
     if (X_TWEET_URL_RE.test(canonical)) continue;
+    // Skip t.co shortlinks the same way enqueueEntityLinkDerivedRows
+    // does — Readability gets nothing useful from a t.co redirect
+    // page. When the ledger row carries expandedUrls (the X-resolved
+    // destinations) we already use those instead of the body URL_RE
+    // matches; the t.co cases that reach here are bodies where the
+    // resolution wasn't available.
+    try {
+      if (new URL(canonical).hostname === 't.co') continue;
+    } catch {
+      continue;
+    }
     candidates.push(canonical);
   }
   if (candidates.length === 0) {
