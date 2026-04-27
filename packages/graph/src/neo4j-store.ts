@@ -19,6 +19,7 @@ import {
   DEFAULT_EMBED_DIMS,
   DEFAULT_SIMILARITY,
   ENTITY_VECTOR_INDEX_NAME,
+  ENTITY_VECTOR_OVERFETCH,
   ENTITY_VECTOR_PROP,
   ID_CONSTRAINTS,
   VECTOR_INDEX_NAME,
@@ -223,15 +224,27 @@ export const createNeo4jGraph = (config: Neo4jConfig): GraphStore => {
     if (label !== 'Claim') {
       // Entity-meta path: query the entity HNSW index, filter results
       // post-retrieval to the requested type label so the score still
-      // reflects same-type similarity.
+      // reflects same-type similarity. db.index.vector.queryNodes
+      // returns the GLOBAL top k across all labels in the shared
+      // entity_embed_idx; if the nearest k happen to be the wrong
+      // type, we'd miss real same-type candidates that are just below
+      // them. Overfetch by ENTITY_VECTOR_OVERFETCH so the post-filter
+      // has enough candidates to find k same-type hits in mixed graphs.
+      const overfetchK = Math.max(k * ENTITY_VECTOR_OVERFETCH, k);
       return await withSession(async (session) => {
         const result = await session.run(
-          `CALL db.index.vector.queryNodes($index, $k, $embedding)
+          `CALL db.index.vector.queryNodes($index, $overfetchK, $embedding)
            YIELD node, score
            WHERE $label IN labels(node)
            RETURN node.id AS id, score
            LIMIT $k`,
-          { index: ENTITY_VECTOR_INDEX_NAME, k: neoIntFromNumber(k), embedding, label },
+          {
+            index: ENTITY_VECTOR_INDEX_NAME,
+            overfetchK: neoIntFromNumber(overfetchK),
+            k: neoIntFromNumber(k),
+            embedding,
+            label,
+          },
         );
         return result.records.map((r) => ({
           id: r.get('id') as string,

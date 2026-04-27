@@ -193,6 +193,16 @@ export interface JobQueue {
   /** Mark a ledger row superseded (used by edit-detection on re-pull). */
   markBookmarkSuperseded: (entryId: string) => void;
   /**
+   * Find the latest non-superseded ledger row for a given tweet_id, plus
+   * the total count of versions in the chain. Used by edit-detection on
+   * re-pull so a second edit supersedes the latest version (not the
+   * original) and gets a non-colliding _vN suffix.
+   */
+  bookmarkChainStatus: (tweetId: string) => {
+    current: BookmarkEntry | null;
+    totalVersions: number;
+  };
+  /**
    * Update mutable status/error fields on a ledger row. `updated_at` is
    * always refreshed; pass `bumpAttempts:true` to atomically increment
    * the attempts counter.
@@ -809,6 +819,24 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
     stmts.markSuperseded.run(now, now, entryId);
   };
 
+  const bookmarkChainStatus = (
+    tweetId: string,
+  ): { current: BookmarkEntry | null; totalVersions: number } => {
+    const rows = db
+      .prepare(
+        `SELECT * FROM bookmark_ledger WHERE tweet_id = ? ORDER BY captured_at ASC`,
+      )
+      .all(tweetId) as BookmarkRow[];
+    if (rows.length === 0) {
+      return { current: null, totalVersions: 0 };
+    }
+    const current = rows.find((r) => r.superseded_at === null);
+    return {
+      current: current === undefined ? null : rowToBookmark(current),
+      totalVersions: rows.length,
+    };
+  };
+
   const listBookmarks = (filter: BookmarkListFilter = {}): BookmarkEntry[] => {
     const order = filter.order ?? 'oldest';
     const desc = order === 'newest';
@@ -933,6 +961,7 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
     getBookmark,
     findBookmarkBySourceUrl,
     markBookmarkSuperseded,
+    bookmarkChainStatus,
     updateBookmark,
     bookmarkStats,
     close,

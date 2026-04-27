@@ -70,7 +70,17 @@ export const runTrends = async (options: TrendsOptions = {}): Promise<TrendsResu
   const format = options.format ?? 'table';
   const env = options.env ?? parseEnvFile(ENV_FILE_PATH);
   const output = options.output ?? ((line: string) => process.stdout.write(line));
-  const logger = options.logger ?? stdoutLogger();
+  // In JSON mode, the caller expects stdout to be a single JSON object
+  // pipeable to jq. Send the NDJSON progress logs to stderr so they
+  // don't pollute the parsed output.
+  const logger =
+    options.logger ??
+    (format === 'json'
+      ? createLogger({
+          level: 'info',
+          sink: jsonLineSink((line) => process.stderr.write(line)),
+        })
+      : stdoutLogger());
 
   const graph = createNeo4jGraph({
     uri: env.NEO4J_URI ?? '',

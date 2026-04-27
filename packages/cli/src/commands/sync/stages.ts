@@ -8,7 +8,7 @@
 import type { Frontmatter } from '@x-scraper/core';
 import { canonicalizeUrl, contentHash, entityId } from '@x-scraper/core';
 import { extract } from '@x-scraper/extractor';
-import { ingest } from '@x-scraper/ingestor';
+import { ingest, X_TWEET_URL_RE } from '@x-scraper/ingestor';
 import type { Job, Stage } from '@x-scraper/queue';
 import type { ExistingClaim } from '@x-scraper/reconciler';
 import {
@@ -62,13 +62,6 @@ export const fetchLinksStage = async (deps: SyncDeps, ctx: JobContext): Promise<
   // video / pdf / X-Article routing AND breaking final-URL dedup. So
   // when expandedUrls is supplied we trust it; otherwise we fall back
   // to body URL_RE scanning (article bodies, ad-hoc URL syncs).
-  const sourceHost = ((): string => {
-    try {
-      return new URL(ctx.source.url).host;
-    } catch {
-      return '';
-    }
-  })();
   const rawCandidates: string[] =
     ctx.source.expandedUrls !== undefined && ctx.source.expandedUrls.length > 0
       ? ctx.source.expandedUrls
@@ -89,13 +82,13 @@ export const fetchLinksStage = async (deps: SyncDeps, ctx: JobContext): Promise<
     }
     if (seen.has(canonical)) continue;
     seen.add(canonical);
-    let host = '';
-    try {
-      host = new URL(canonical).host;
-    } catch {
-      continue;
-    }
-    if (host === sourceHost) continue;
+    if (canonical === ctx.source.url) continue;
+    // Skip tweet permalinks — we don't ingest standalone tweets (those
+    // come in via the bookmark scraper). DON'T skip every same-host
+    // URL: a tweet linking to an x.com/i/article/... is a different
+    // shape that the X Article ingestor handles, and dropping it here
+    // would prevent the only path that auto-ingests linked X Articles.
+    if (X_TWEET_URL_RE.test(canonical)) continue;
     candidates.push(canonical);
   }
   if (candidates.length === 0) {

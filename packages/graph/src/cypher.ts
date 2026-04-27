@@ -87,9 +87,15 @@ export const buildUpsertEdge = (edgeType: EdgeType): string => {
   // must NEVER reset invalid_at on a previously invalidated edge — that would
   // erase history. We OPTIONAL MATCH on the current edge, then FOREACH to
   // either CREATE a new current edge (none exists) or SET the existing one.
+  //
+  // Exclude cooccurrence edges from this match path: cooccurrence-typed
+  // RELATED_TO edges have kind='cooccurrence' and accumulate
+  // sources[]/cooccurrence_count via buildUpsertCooccurrenceEdge. A
+  // generic RELATED_TO upsert from the model must NOT match (and
+  // overwrite) a cooccurrence edge between the same nodes.
   return `MATCH (a { id: $from }), (b { id: $to })
 OPTIONAL MATCH (a)-[existing:${edgeType}]->(b)
-WHERE existing.invalid_at IS NULL
+WHERE existing.invalid_at IS NULL AND existing.kind IS NULL
 FOREACH (_ IN CASE WHEN existing IS NULL THEN [1] ELSE [] END |
   CREATE (a)-[r:${edgeType}]->(b)
   SET r.valid_at = $validAt, r.invalid_at = $invalidAt,
@@ -101,7 +107,7 @@ FOREACH (_ IN CASE WHEN existing IS NOT NULL THEN [1] ELSE [] END |
 )
 WITH a, b
 OPTIONAL MATCH (a)-[r:${edgeType}]->(b)
-WHERE r.invalid_at IS NULL
+WHERE r.invalid_at IS NULL AND r.kind IS NULL
 RETURN r`;
 };
 

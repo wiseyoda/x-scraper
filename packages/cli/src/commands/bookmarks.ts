@@ -133,17 +133,23 @@ export const runBookmarksPull = async (
       }
       const url = canonicalizeUrl(tweetPermalink(record.tweetId, payload.author));
       // T21: detect tweet edits by comparing the new text_hash against
-      // the prior row's hash. On mismatch we DON'T overwrite — we mark
-      // the prior row superseded and INSERT a new entry, preserving
-      // the audit trail. Hash is short (16 chars of sha256).
+      // the LATEST non-superseded row's hash for this tweet. We must
+      // NOT key on record.entryId alone — for tweets edited more than
+      // once, the original row's textHash is stale and using it as the
+      // "prior" hash, plus its unchanging attempts counter as the
+      // version suffix, would generate colliding _vN ids. Look up by
+      // tweet_id instead so successive edits each supersede the actual
+      // current row and pick a fresh _vN.
       const newHash = contentHash(payload.text);
-      const existing = queue.getBookmark(record.entryId);
-      if (existing !== null && existing.textHash !== null && existing.textHash !== newHash) {
-        // Edit detected. Supersede the old row, then insert under a
-        // derived entry_id (parent points at the original) so the
-        // current ledger reflects the new text without losing history.
-        queue.markBookmarkSuperseded(record.entryId);
-        const supersededId = `${record.entryId}_v${(existing.attempts + 1).toString()}`;
+      const chain = queue.bookmarkChainStatus(record.tweetId);
+      const current = chain.current;
+      if (current !== null && current.textHash !== null && current.textHash !== newHash) {
+        // Edit detected. Supersede the current latest, insert a new row
+        // pointing back to it so the chain's audit trail stays intact.
+        // Version suffix derives from the chain length so it's stable
+        // and non-colliding regardless of which row we superseded.
+        queue.markBookmarkSuperseded(current.entryId);
+        const supersededId = `${record.entryId}_v${chain.totalVersions.toString()}`;
         queue.upsertBookmark({
           entryId: supersededId,
           tweetId: record.tweetId,
@@ -154,7 +160,7 @@ export const runBookmarksPull = async (
           urls: payload.urls,
           capturedAt: record.capturedAt,
           tweetCreatedAt: payload.createdAt,
-          parentEntryId: record.entryId,
+          parentEntryId: current.entryId,
           textHash: newHash,
         });
         inserted += 1;

@@ -7,6 +7,8 @@ export {
   INGESTOR_KINDS,
   MAX_BODY_CHARS,
   MIN_BODY_CHARS,
+  X_ARTICLE_URL_RE,
+  X_TWEET_URL_RE,
 } from './constants.js';
 export { ingest, selectIngestor } from './dispatcher.js';
 export type { FetchLike, FetchOptions } from './http.js';
