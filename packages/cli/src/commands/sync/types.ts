@@ -41,6 +41,14 @@ export interface SourceItem {
    * syncs (`xs sync --urls=...`).
    */
   entryId?: string;
+  /**
+   * X-resolved expanded URLs from the ledger's urls_json column. Tweet
+   * bodies keep `https://t.co/...` shortlinks verbatim; auto-expand
+   * needs the resolved destinations or the derived rows would dedupe
+   * by t.co and route to the wrong ingestor. Undefined / empty for
+   * non-tweet sources, where body URL scanning is authoritative.
+   */
+  expandedUrls?: string[];
 }
 
 export interface ClaimFinder {

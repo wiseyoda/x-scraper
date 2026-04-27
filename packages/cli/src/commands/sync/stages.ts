@@ -47,22 +47,21 @@ const inferContentType = (url: string): 'tweet' | 'article' | 'repo' | 'video' |
 const URL_RE = /https?:\/\/[^\s)]+/g;
 
 export const fetchLinksStage = async (deps: SyncDeps, ctx: JobContext): Promise<void> => {
-  // Hard auto-expand: scan the source body for embedded URLs, dedupe
+  // Hard auto-expand: discover embedded URLs in the source, dedupe
   // against the live bookmark_ledger, and enqueue any unseen URL as a
   // derived ledger row whose parent_entry_id points back to the
   // current bookmark. The next `xs bookmarks sync` pass picks them up
   // and runs them through the existing ingestor → extractor → graph
   // pipeline (article/pdf/repo/youtube routing handled by the URL
   // host classifier in extractTextStage).
-  if (ctx.source.body === undefined || ctx.source.body.length === 0) {
-    await Promise.resolve();
-    return;
-  }
-  const matches = ctx.source.body.match(URL_RE) ?? [];
-  // Trim trailing punctuation that the lazy regex over-captures (",.;!)
-  // and drop the source URL itself (always present in tweet text as a
-  // t.co self-reference for media tweets), then dedupe by canonical
-  // form. Skip same-host self-references too.
+  //
+  // Tweets keep `https://t.co/...` shortlinks in the body even though
+  // X resolves them to expandedUrls in the ledger row's urls_json. If
+  // we scan only the body we'd dedupe by t.co and route every derived
+  // tweet-link through the default article ingestor — missing repo /
+  // video / pdf / X-Article routing AND breaking final-URL dedup. So
+  // when expandedUrls is supplied we trust it; otherwise we fall back
+  // to body URL_RE scanning (article bodies, ad-hoc URL syncs).
   const sourceHost = ((): string => {
     try {
       return new URL(ctx.source.url).host;
@@ -70,9 +69,15 @@ export const fetchLinksStage = async (deps: SyncDeps, ctx: JobContext): Promise<
       return '';
     }
   })();
+  const rawCandidates: string[] =
+    ctx.source.expandedUrls !== undefined && ctx.source.expandedUrls.length > 0
+      ? ctx.source.expandedUrls
+      : ctx.source.body !== undefined && ctx.source.body.length > 0
+        ? ctx.source.body.match(URL_RE) ?? []
+        : [];
   const candidates: string[] = [];
   const seen = new Set<string>();
-  for (const raw of matches) {
+  for (const raw of rawCandidates) {
     const trimmed = raw.replace(/[.,;!?)\]]+$/, '');
     if (trimmed.length === 0) continue;
     if (trimmed === ctx.source.url) continue;

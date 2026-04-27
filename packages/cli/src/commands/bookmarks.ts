@@ -253,6 +253,7 @@ export const buildSyncItemFromLedger = (entry: {
   urls?: string[];
 }): BookmarkSyncItem => {
   const url = canonicalizeUrl(entry.sourceUrl);
+  const expanded = entry.urls ?? [];
   const sourceItem: SourceItem = {
     sourceId: entityId('Source', url),
     sourceKind: entry.source,
@@ -261,12 +262,16 @@ export const buildSyncItemFromLedger = (entry: {
     discoveredAt: entry.capturedAt,
     entryId: entry.entryId,
     ...(entry.author === null ? {} : { byline: entry.author }),
+    // Pipe the ledger's X-resolved expanded URLs onto SourceItem so
+    // fetchLinksStage (hard auto-expand) enqueues derived rows for
+    // the resolved destinations rather than the raw t.co shortlinks
+    // the body still contains. Without this, derived rows dedupe by
+    // t.co and miss repo/video/pdf/X-Article ingestor routing.
+    ...(expanded.length === 0 ? {} : { expandedUrls: expanded }),
   };
-  // Stash the ledger's expanded urls (X.com's resolved t.co targets) on
-  // the item so the link-only short-circuit can enqueue derived rows
-  // for them — otherwise t.co-only tweets would skip extraction AND
-  // skip auto-expand, losing the linked article entirely.
-  return { entryId: entry.entryId, source: sourceItem, expandedUrls: entry.urls ?? [] };
+  // Also stash on the wrapper so the link-only short-circuit (which
+  // bypasses fetchLinksStage entirely) can still enqueue derived rows.
+  return { entryId: entry.entryId, source: sourceItem, expandedUrls: expanded };
 };
 
 const PROMPT_VERSION_DEFAULT = { extraction: 1, reconciliation: 1, embedding: 1 };

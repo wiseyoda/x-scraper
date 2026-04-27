@@ -406,6 +406,42 @@ describe('runSync', () => {
     expect(after.length).toBe(3);
   });
 
+  it('hard auto-expand: prefers expandedUrls over body t.co shortlinks', async () => {
+    // A real tweet keeps `https://t.co/abc` in body even though X's
+    // urls_json resolves it to a real destination. fetchLinksStage
+    // should enqueue the resolved URL — never the t.co shortlink — so
+    // derived rows route to the right ingestor and dedupe by final URL.
+    const queue = createSqliteQueue(queuePath);
+    queue.upsertBookmark({
+      entryId: 'tweet-with-expanded',
+      tweetId: '2',
+      source: 'bookmarks',
+      sourceUrl: 'https://x.com/u/status/2',
+      author: 'u',
+      text: 'See https://t.co/abc',
+      capturedAt: '2026-01-01T00:00:00.000Z',
+    });
+    queue.close();
+
+    const sources: SourceItem[] = [
+      {
+        sourceId: 'src_with_expanded',
+        sourceKind: 'bookmarks',
+        url: 'https://x.com/u/status/2',
+        body: 'See https://t.co/abc',
+        entryId: 'tweet-with-expanded',
+        expandedUrls: ['https://github.com/owner/repo'],
+      },
+    ];
+    const deps = makeDeps({}, sources);
+    await runSync(deps, { source: 'bookmarks' });
+
+    const derived = deps.queue.listBookmarks({ sourceKind: 'derived' });
+    expect(derived.map((d) => d.sourceUrl)).toEqual(['https://github.com/owner/repo']);
+    expect(derived[0]?.parentEntryId).toBe('tweet-with-expanded');
+    deps.queue.close();
+  });
+
   it('hard auto-expand: skips when no parent entryId (ad-hoc URL sync)', async () => {
     const sources: SourceItem[] = [
       {
