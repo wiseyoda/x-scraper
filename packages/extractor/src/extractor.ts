@@ -34,6 +34,7 @@ export interface ExtractInput {
   cost?: {
     runId?: string;
     jobId?: string;
+    entryId?: string;
     stage?: Stage;
   };
   /** Override the repair budget (default 2). */

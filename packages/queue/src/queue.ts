@@ -132,6 +132,8 @@ export interface FailInput {
 export interface CostInput {
   runId?: string;
   jobId?: string;
+  /** Originating bookmark_ledger.entry_id (T22). */
+  entryId?: string;
   stage?: Stage;
   provider: string;
   model: string;
@@ -169,6 +171,8 @@ export interface JobQueue {
   listDlq: () => Job[];
   recordCost: (cost: CostInput) => string;
   costSince: (sinceIso: string) => number;
+  /** Top-N (entry_id, total cost since) tuples. NULL entry_ids excluded. */
+  costByEntry: (sinceIso: string, limit: number) => { entryId: string; totalUsd: number }[];
   stats: (runId?: string) => QueueStats;
   /**
    * Upsert a bookmark into the ledger. Idempotent on entry_id — re-pulling
@@ -216,6 +220,47 @@ export interface JobQueue {
  * an older binary against a newer db would silently break invariants
  * the newer code expects.
  */
+const ALTER_ADD_COLUMN_RE = /ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)\b/i;
+
+const columnExists = (db: DatabaseType, table: string, column: string): boolean => {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  return rows.some((r) => r.name === column);
+};
+
+// Strip SQL line comments (-- ... newline) before splitting on `;` so a
+// semicolon inside a comment doesn't fragment a statement. Block
+// comments (/* ... */) aren't currently used in our migrations.
+const stripSqlLineComments = (sql: string): string =>
+  sql
+    .split('\n')
+    .map((line) => {
+      // Keep the line if it has no `--` outside of string literals. We
+      // don't currently embed `--` inside strings in any migration; the
+      // simple pre-trim check is fine.
+      const idx = line.indexOf('--');
+      return idx === -1 ? line : line.slice(0, idx);
+    })
+    .join('\n');
+
+const runMigration = (db: DatabaseType, migration: string): void => {
+  const cleaned = stripSqlLineComments(migration);
+  const stmts = cleaned
+    .split(';')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  for (const stmt of stmts) {
+    const m = ALTER_ADD_COLUMN_RE.exec(stmt);
+    if (m !== null) {
+      const table = m[1];
+      const column = m[2];
+      if (table !== undefined && column !== undefined && columnExists(db, table, column)) {
+        continue;
+      }
+    }
+    db.exec(stmt);
+  }
+};
+
 const ensureSchema = (db: DatabaseType): void => {
   // Per-connection pragmas first so they apply regardless of branch.
   db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;');
@@ -241,7 +286,14 @@ const ensureSchema = (db: DatabaseType): void => {
     if (migration === undefined) {
       throw new QueueError(`no migration defined for v${String(next)}`, 'SCHEMA_MIGRATE');
     }
-    db.exec(migration);
+    // Skip ALTER TABLE statements when the column already exists. Tests
+    // that synthesize older schemas from the latest bootstrap (then
+    // PRAGMA user_version downgrade) sometimes have a forward-looking
+    // column already present — running ALTER would throw 'duplicate
+    // column'. Production paths from a real older binary don't hit
+    // this. Only ALTER TABLE ADD COLUMN gets the guard; everything
+    // else runs as-is.
+    runMigration(db, migration);
     db.exec(`PRAGMA user_version = ${String(next)};`);
     current = next;
   }
@@ -327,9 +379,9 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
     ),
     insertCost: db.prepare(
       `INSERT INTO cost_ledger (
-         ledger_id, recorded_at, run_id, job_id, stage, provider, model,
+         ledger_id, recorded_at, run_id, job_id, entry_id, stage, provider, model,
          input_tokens, output_tokens, cache_read_tokens, cache_create_tokens, cost_usd
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     sumCostSince: db.prepare(
       `SELECT COALESCE(SUM(cost_usd), 0) AS total FROM cost_ledger WHERE recorded_at >= ?`,
@@ -593,6 +645,7 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
       isoNow(),
       cost.runId ?? null,
       cost.jobId ?? null,
+      cost.entryId ?? null,
       cost.stage ?? null,
       cost.provider,
       cost.model,
@@ -603,6 +656,23 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
       cost.costUsd ?? 0,
     );
     return ledgerId;
+  };
+
+  const costByEntry = (
+    sinceIso: string,
+    limit: number,
+  ): { entryId: string; totalUsd: number }[] => {
+    const rows = db
+      .prepare(
+        `SELECT entry_id AS entryId, SUM(cost_usd) AS totalUsd
+         FROM cost_ledger
+         WHERE entry_id IS NOT NULL AND recorded_at >= ?
+         GROUP BY entry_id
+         ORDER BY totalUsd DESC
+         LIMIT ?`,
+      )
+      .all(sinceIso, limit) as { entryId: string; totalUsd: number }[];
+    return rows;
   };
 
   const costSince = (sinceIso: string): number => {
@@ -827,6 +897,7 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
     listDlq,
     recordCost,
     costSince,
+    costByEntry,
     stats,
     upsertBookmark,
     listBookmarks,

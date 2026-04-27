@@ -61,6 +61,10 @@ export interface LlmCostSink {
   recordCost: (input: {
     runId?: string;
     jobId?: string;
+    /** Originating bookmark_ledger entry_id when this LLM call was on
+     *  behalf of a specific bookmark. Lets `xs cost --by-entry` answer
+     *  "what does each bookmark cost end-to-end?". (T22.) */
+    entryId?: string;
     stage?: Stage;
     provider: string;
     model: string;

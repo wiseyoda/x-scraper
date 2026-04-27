@@ -56,6 +56,11 @@ export interface TopicDetectOptions {
   /** Test seam: replacement env reader. */
   env?: Record<string, string>;
   logger?: Logger;
+  /** When > 0, decay each edge's effective weight by 2^(-age_days / N).
+   *  0 disables decay (cooccurrence_count is the raw weight). Default 0. */
+  recencyHalfLifeDays?: number;
+  /** Test seam: clock for recency decay. */
+  now?: () => Date;
 }
 
 export interface TopicSummary {
@@ -249,12 +254,34 @@ export const runTopicDetect = async (
     }
 
     const nameById = new Map(subgraph.nodes.map((n) => [n.id, n.name] as const));
+    // T19: optional recency decay. With half-life H days, an edge whose
+    // most recent contributing source landed N days ago contributes
+    // `cooccurrence_count * 2^(-N/H)` to the Louvain weight. Disabled
+    // (H=0) means raw cooccurrence_count is the weight.
+    const halfLife = options.recencyHalfLifeDays ?? 0;
+    const nowMs = (options.now ?? ((): Date => new Date()))().getTime();
+    const decayedEdges = subgraph.edges.map((e) => {
+      const baseWeight = Math.max(1, e.cooccurrenceCount);
+      if (halfLife <= 0 || e.lastObservedAt === null) {
+        return { ...e, weight: baseWeight };
+      }
+      const observedMs = Date.parse(e.lastObservedAt);
+      if (Number.isNaN(observedMs)) {
+        return { ...e, weight: baseWeight };
+      }
+      const ageDays = Math.max(0, (nowMs - observedMs) / (24 * 60 * 60 * 1000));
+      const decay = Math.pow(2, -ageDays / halfLife);
+      return { ...e, weight: baseWeight * decay };
+    });
     const communities = detectCommunities({
       nodes: subgraph.nodes,
-      edges: subgraph.edges,
+      edges: decayedEdges,
       minCommunitySize,
     });
-    logger.info('topic.detect.communities_found', { count: communities.length });
+    logger.info('topic.detect.communities_found', {
+      count: communities.length,
+      halfLifeDays: halfLife,
+    });
 
     const synthesizer = buildSynthesizer(llm, nameById);
     let totalCost = 0;

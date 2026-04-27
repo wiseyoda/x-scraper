@@ -132,6 +132,34 @@ export const runBookmarksPull = async (
         continue;
       }
       const url = canonicalizeUrl(tweetPermalink(record.tweetId, payload.author));
+      // T21: detect tweet edits by comparing the new text_hash against
+      // the prior row's hash. On mismatch we DON'T overwrite — we mark
+      // the prior row superseded and INSERT a new entry, preserving
+      // the audit trail. Hash is short (16 chars of sha256).
+      const newHash = contentHash(payload.text);
+      const existing = queue.getBookmark(record.entryId);
+      if (existing !== null && existing.textHash !== null && existing.textHash !== newHash) {
+        // Edit detected. Supersede the old row, then insert under a
+        // derived entry_id (parent points at the original) so the
+        // current ledger reflects the new text without losing history.
+        queue.markBookmarkSuperseded(record.entryId);
+        const supersededId = `${record.entryId}_v${(existing.attempts + 1).toString()}`;
+        queue.upsertBookmark({
+          entryId: supersededId,
+          tweetId: record.tweetId,
+          source,
+          sourceUrl: url,
+          author: payload.author,
+          text: payload.text,
+          urls: payload.urls,
+          capturedAt: record.capturedAt,
+          tweetCreatedAt: payload.createdAt,
+          parentEntryId: record.entryId,
+          textHash: newHash,
+        });
+        inserted += 1;
+        continue;
+      }
       const result = queue.upsertBookmark({
         entryId: record.entryId,
         tweetId: record.tweetId,
@@ -142,6 +170,7 @@ export const runBookmarksPull = async (
         urls: payload.urls,
         capturedAt: record.capturedAt,
         tweetCreatedAt: payload.createdAt,
+        textHash: newHash,
       });
       if (result === 'inserted') inserted += 1;
       else unchanged += 1;

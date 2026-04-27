@@ -130,6 +130,7 @@ export const createClaudeProvider = (config: ClaudeConfig): LlmProvider => {
       config.cost.recordCost({
         ...(req.cost?.runId === undefined ? {} : { runId: req.cost.runId }),
         ...(req.cost?.jobId === undefined ? {} : { jobId: req.cost.jobId }),
+        ...(req.cost?.entryId === undefined ? {} : { entryId: req.cost.entryId }),
         ...(req.cost?.stage === undefined ? {} : { stage: req.cost.stage }),
         provider: 'anthropic',
         model: modelUsed,

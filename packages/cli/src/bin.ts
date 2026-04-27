@@ -27,6 +27,7 @@ import { runStatus } from './commands/status.js';
 import { runSync } from './commands/sync/index.js';
 import { buildCuratedSources, wireSyncDeps } from './commands/sync/wire.js';
 import { runTopicDetect } from './commands/topic.js';
+import { runTrends } from './commands/trends.js';
 import { resolveConfig } from './config.js';
 import { ENV_FILE_PATH, EXIT_FAIL, EXIT_OK, EXIT_USAGE } from './constants.js';
 
@@ -115,8 +116,31 @@ const runMain = async (): Promise<number> => {
     }
     case 'cost': {
       const since = args.options.get('since');
-      const result = since === undefined ? runCost(config) : runCost(config, since);
+      const byEntry = args.flags.has('by-entry');
+      const topStr = args.options.get('top');
+      const result = runCost(config, {
+        ...(since === undefined ? {} : { sinceIso: since }),
+        byEntry,
+        ...(topStr === undefined ? {} : { topN: Number(topStr) }),
+      });
       console.log(`since ${result.sinceIso}: $${result.totalUsd.toFixed(4)}`);
+      if (result.byEntry !== undefined) {
+        console.log('\nTop bookmarks by spend:');
+        for (const row of result.byEntry) {
+          console.log(`  ${row.entryId.padEnd(30)}  $${row.totalUsd.toFixed(4)}`);
+        }
+      }
+      return EXIT_OK;
+    }
+    case 'trends': {
+      const formatArg = args.options.get('format');
+      const format: 'json' | 'table' = formatArg === 'json' ? 'json' : 'table';
+      const topStr = args.options.get('top');
+      const topN = topStr === undefined ? undefined : Number(topStr);
+      await runTrends({
+        format,
+        ...(topN === undefined || Number.isNaN(topN) ? {} : { topN }),
+      });
       return EXIT_OK;
     }
     case 'doctor': {
@@ -215,10 +239,15 @@ const runMain = async (): Promise<number> => {
         return EXIT_USAGE;
       }
       const minSizeStr = args.options.get('min-size');
+      const halfLifeStr = args.options.get('recency-half-life-days');
+      const halfLifeDays = halfLifeStr === undefined ? undefined : Number(halfLifeStr);
       const result = await runTopicDetect(config, {
         synthesize: args.flags.has('synthesize'),
         ...(args.flags.has('dry-run') ? { dryRun: true } : {}),
         ...(minSizeStr === undefined ? {} : { minCommunitySize: Number(minSizeStr) }),
+        ...(halfLifeDays === undefined || Number.isNaN(halfLifeDays)
+          ? {}
+          : { recencyHalfLifeDays: halfLifeDays }),
       });
       console.log(
         `topic detect: nodes=${String(result.totalNodes)} edges=${String(result.totalEdges)} communities=${String(result.communitiesFound)} written=${String(result.topicsWritten)} cost=$${result.costUsd.toFixed(4)}`,

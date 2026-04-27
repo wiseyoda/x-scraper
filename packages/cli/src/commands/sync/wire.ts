@@ -101,9 +101,16 @@ export const wireSyncDeps = async (
   const embedCost: CostSink = { recordCost: (c) => queue.recordCost(c) };
   const llmCost: LlmCostSink = { recordCost: (c) => queue.recordCost(c) };
 
+  // Embedding cost attribution carries entryId when this wire is for
+  // a single bookmark sync (T22). For multi-source URL syncs the
+  // attribution is wire-time-fixed; entry_id is not meaningful there.
+  const wireTimeEntryId = curated.length === 1 ? curated[0]?.entryId : undefined;
   const embeddings = createGeminiEmbedding({
     apiKey: requireKey(env, 'GEMINI_API_KEY'),
-    cost: { sink: embedCost },
+    cost: {
+      sink: embedCost,
+      ...(wireTimeEntryId === undefined ? {} : { entryId: wireTimeEntryId }),
+    },
   });
 
   const anthropic = new Anthropic({ apiKey: requireKey(env, 'ANTHROPIC_API_KEY') });

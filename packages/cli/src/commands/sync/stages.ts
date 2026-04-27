@@ -191,7 +191,11 @@ export const extractFactsStage = async (deps: SyncDeps, ctx: JobContext): Promis
     body: ctx.ingested.body,
     ...(ctx.ingested.title !== null ? { title: ctx.ingested.title } : {}),
     sourceUrl: ctx.source.url,
-    cost: { jobId: ctx.jobId, stage: 'extract_facts' },
+    cost: {
+      jobId: ctx.jobId,
+      stage: 'extract_facts',
+      ...(ctx.source.entryId === undefined ? {} : { entryId: ctx.source.entryId }),
+    },
   });
   ctx.extraction = {
     entities: result.data.entities.map((e) => ({
@@ -386,8 +390,35 @@ export const updateGraphStage = async (deps: SyncDeps, ctx: JobContext): Promise
       url: ctx.source.url,
       content_type: ctx.ingested.contentType,
       captured_at: ctx.ingested.capturedAt,
+      ...(ctx.ingested.byline === null ? {} : { 'host_metadata.byline': ctx.ingested.byline }),
     },
   });
+  // T20: when the source has a byline, materialize it as a Person entity
+  // and link the Source via AUTHORED_BY. Lets queries answer
+  // "show everything bookmarked from @steipete" via Cypher rather than
+  // string-matching host_metadata.
+  if (ctx.ingested.byline !== null && ctx.ingested.byline.length > 0) {
+    const handle = ctx.ingested.byline;
+    const personId = entityId('Person', handle);
+    const personNormalizedName = normalizeEntityName(handle);
+    await deps.graph.upsertNode({
+      id: personId,
+      type: 'Person',
+      props: {
+        name: handle,
+        handle,
+        normalized_name: personNormalizedName,
+        normalized_aliases: [personNormalizedName].filter((s) => s.length > 0),
+      },
+    });
+    await deps.graph.upsertEdge({
+      from: ctx.source.sourceId,
+      to: personId,
+      type: 'AUTHORED_BY',
+      validAt: now,
+      confidence: 1,
+    });
+  }
   if (ctx.extraction === null) return;
 
   for (const entity of ctx.extraction.entities) {
@@ -506,6 +537,45 @@ export const updateGraphStage = async (deps: SyncDeps, ctx: JobContext): Promise
       validAt: now,
       confidence: 0.8,
     });
+  }
+
+  // Concept co-occurrence edges (T16): every pair of Concept entities
+  // mentioned in the same source gets a RELATED_TO edge with weight
+  // proportional to inverse-source-frequency (rare-pair edges weigh
+  // more than ubiquitous ones). The extractor rarely emits explicit
+  // Concept-Concept relationships even when concepts genuinely cluster
+  // in the same source — this stage closes that gap so topic detection
+  // sees enough edge density to surface meaningful communities.
+  //
+  // Weight formula: 1 / (1 + ln(1 + sourceCountA + sourceCountB)).
+  // Source counts read once per (A, B) pair. UPSERT idempotent — repeat
+  // co-occurrence in another source bumps cooccurrence_count + recomputes.
+  const conceptResolutions: { graphId: string }[] = [];
+  for (const entity of ctx.extraction.entities) {
+    if (entity.type !== 'Concept') continue;
+    const r = ctx.entityResolutions.get(entity.id);
+    if (r !== undefined) conceptResolutions.push({ graphId: r.graphId });
+  }
+  // Dedupe by graphId — the extractor can emit two synonymous Concepts
+  // both resolving to the same node; we don't want self-edges.
+  const uniqueConceptIds = Array.from(new Set(conceptResolutions.map((c) => c.graphId)));
+  if (uniqueConceptIds.length >= 2) {
+    for (let i = 0; i < uniqueConceptIds.length; i += 1) {
+      for (let j = i + 1; j < uniqueConceptIds.length; j += 1) {
+        const a = uniqueConceptIds[i];
+        const b = uniqueConceptIds[j];
+        if (a === undefined || b === undefined) continue;
+        // Order pair lexicographically so MERGE upserts the same edge
+        // regardless of which source happened to emit them in which order.
+        const [from, to] = a < b ? [a, b] : [b, a];
+        await deps.graph.upsertCooccurrenceEdge({
+          from,
+          to,
+          sourceId: ctx.source.sourceId,
+          now,
+        });
+      }
+    }
   }
 };
 

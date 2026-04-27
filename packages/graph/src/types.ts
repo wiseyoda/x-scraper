@@ -38,6 +38,13 @@ export interface ConceptEdgeRecord {
   from: string;
   to: string;
   type: EdgeType;
+  /** Number of distinct sources that co-mention the pair. Defaults to 1
+   *  for legacy edges that pre-date the cooccurrence_count property. */
+  cooccurrenceCount: number;
+  /** ISO timestamp of the most recent Source contributing to this edge,
+   *  or null when no captured_at is recoverable. Used by recency
+   *  weighting in `xs topic detect --recency-half-life-days=N`. */
+  lastObservedAt: string | null;
 }
 
 export interface ConceptNodeRecord {
@@ -93,6 +100,18 @@ export interface GraphStore {
    * Capped at 100 to avoid runaway result sets.
    */
   findClaimsForSubject: (subject: string) => Promise<ExistingClaimRecord[]>;
+  /**
+   * Upsert an additive Concept-Concept co-occurrence edge. Each call
+   * bumps cooccurrence_count and appends sourceId to the sources list
+   * (deduped). Returns the new count. Used by update_graph after the
+   * extractor's explicit relationships are written.
+   */
+  upsertCooccurrenceEdge: (input: {
+    from: string;
+    to: string;
+    sourceId: string;
+    now: string;
+  }) => Promise<number>;
   close: () => Promise<void>;
 }
 

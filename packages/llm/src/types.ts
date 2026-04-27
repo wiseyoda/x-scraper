@@ -29,10 +29,11 @@ export interface CompleteRequest {
   system?: CachedSystemBlock[];
   /** Conversation. */
   messages: MessageInput[];
-  /** Optional run/job/stage attribution for the cost ledger. */
+  /** Optional run/job/entry/stage attribution for the cost ledger. */
   cost?: {
     runId?: string;
     jobId?: string;
+    entryId?: string;
     stage?: Stage;
   };
 }

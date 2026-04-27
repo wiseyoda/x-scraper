@@ -31,6 +31,7 @@ import {
   buildIdConstraint,
   buildInvalidateEdge,
   buildTraversal,
+  buildUpsertCooccurrenceEdge,
   buildUpsertEdge,
   buildUpsertNode,
   buildUpsertNodeWithEmbedding,
@@ -298,16 +299,32 @@ export const createNeo4jGraph = (config: Neo4jConfig): GraphStore => {
         type: 'Concept' as const,
         name: (r.get('name') as string | null) ?? (r.get('id') as string),
       }));
+      // Edge query also pulls cooccurrence_count + the most recent
+      // captured_at across all sources contributing to the edge, so
+      // T19's recency weighting can decay it in JS without round-tripping.
       const edgeResult = await session.run(`
         MATCH (a:Concept)-[r:RELATED_TO]->(b:Concept)
-        WHERE r.invalid_at IS NULL
-        RETURN a.id AS fromId, b.id AS toId
+        WHERE coalesce(r.invalid_at, '') = ''
+        OPTIONAL MATCH (s:Source)
+        WHERE s.id IN coalesce(r.sources, [])
+        WITH a, b, r, max(s.captured_at) AS lastObservedAt
+        RETURN a.id AS fromId,
+               b.id AS toId,
+               coalesce(r.cooccurrence_count, 1) AS cooccurrenceCount,
+               lastObservedAt
       `);
-      const edges = edgeResult.records.map((r) => ({
-        from: r.get('fromId') as string,
-        to: r.get('toId') as string,
-        type: 'RELATED_TO' as const,
-      }));
+      const edges = edgeResult.records.map((r) => {
+        const rawCount = r.get('cooccurrenceCount') as { toNumber: () => number } | number | null;
+        const cooccurrenceCount =
+          rawCount === null ? 1 : typeof rawCount === 'number' ? rawCount : rawCount.toNumber();
+        return {
+          from: r.get('fromId') as string,
+          to: r.get('toId') as string,
+          type: 'RELATED_TO' as const,
+          cooccurrenceCount,
+          lastObservedAt: (r.get('lastObservedAt') as string | null) ?? null,
+        };
+      });
       return { nodes, edges };
     });
   };
@@ -327,6 +344,28 @@ export const createNeo4jGraph = (config: Neo4jConfig): GraphStore => {
         id: row.get('id') as string,
         matchedSurface: (row.get('matchedSurface') as string | null) ?? '',
       };
+    });
+  };
+
+  const upsertCooccurrenceEdge = async (input: {
+    from: string;
+    to: string;
+    sourceId: string;
+    now: string;
+  }): Promise<number> => {
+    return await withSession(async (session) => {
+      const result = await session.run(buildUpsertCooccurrenceEdge(), {
+        from: input.from,
+        to: input.to,
+        sourceId: input.sourceId,
+        now: input.now,
+      });
+      const value = result.records[0]?.get('count') as
+        | { toNumber: () => number }
+        | number
+        | undefined;
+      if (value === undefined) return 0;
+      return typeof value === 'number' ? value : value.toNumber();
     });
   };
 
@@ -360,6 +399,7 @@ export const createNeo4jGraph = (config: Neo4jConfig): GraphStore => {
     listConceptSubgraph,
     findEntityByNormalizedSurface,
     findClaimsForSubject,
+    upsertCooccurrenceEdge,
     close,
   };
 };

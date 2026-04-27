@@ -79,6 +79,9 @@ CREATE TABLE IF NOT EXISTS cost_ledger (
   recorded_at   TEXT NOT NULL,
   run_id        TEXT,
   job_id        TEXT,
+  -- v3: bookmark_ledger.entry_id when this cost was billed on behalf
+  -- of a specific bookmark (T22). Lets xs cost --by-entry group spend.
+  entry_id      TEXT,
   stage         TEXT,
   provider      TEXT NOT NULL,
   model         TEXT NOT NULL,
@@ -91,6 +94,7 @@ CREATE TABLE IF NOT EXISTS cost_ledger (
 
 CREATE INDEX IF NOT EXISTS ledger_recorded_idx ON cost_ledger (recorded_at);
 CREATE INDEX IF NOT EXISTS ledger_run_idx ON cost_ledger (run_id);
+CREATE INDEX IF NOT EXISTS ledger_entry_idx ON cost_ledger (entry_id);
 
 CREATE TABLE IF NOT EXISTS bookmark_ledger (
   entry_id    TEXT PRIMARY KEY,
@@ -178,5 +182,8 @@ export const MIGRATIONS: Record<number, string> = {
       ON bookmark_ledger (parent_entry_id);
     CREATE INDEX IF NOT EXISTS bookmark_ledger_source_url_idx
       ON bookmark_ledger (source_url);
+    -- T22: cost_ledger entry_id attribution.
+    ALTER TABLE cost_ledger ADD COLUMN entry_id TEXT;
+    CREATE INDEX IF NOT EXISTS ledger_entry_idx ON cost_ledger (entry_id);
   `,
 };

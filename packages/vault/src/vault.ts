@@ -75,6 +75,29 @@ const writeFileAtomic = async (target: string, content: string): Promise<void> =
   await fs.rename(tmp, target);
 };
 
+// T23: at ~8000 flat files in claims/ readdir + git start to feel slow.
+// Once tripped, shard by id prefix (e.g. claims/c_/c_651ef3b1.md) like
+// git loose-objects. Until then we just nag.
+const CLAIMS_SHARD_WARN_AT = 8_000;
+let claimsWarnedThisSession = false;
+const maybeWarnClaimDirectorySize = async (claimsDir: string): Promise<void> => {
+  if (claimsWarnedThisSession) return;
+  try {
+    const entries = await fs.readdir(claimsDir);
+    if (entries.length >= CLAIMS_SHARD_WARN_AT) {
+      claimsWarnedThisSession = true;
+      // Plain console.warn — vault has no logger dep. Fine for an
+      // operational nag that fires once per process.
+      console.warn(
+        `[vault] claims/ directory has ${entries.length.toString()} flat files; ` +
+          `consider sharding by id prefix (see T23 in HANDOFF).`,
+      );
+    }
+  } catch {
+    // claims/ may not exist yet on a fresh init — nothing to warn about.
+  }
+};
+
 const readJsonSafely = async (file: string): Promise<string | null> => {
   try {
     return await fs.readFile(file, 'utf8');
@@ -136,6 +159,13 @@ export const createMarkdownVault = (root: string): VaultStore => {
     await git()
       .add([path.relative(root, file)])
       .catch(() => undefined);
+    // T23 (deferred): warn when the claims/ directory grows past ~8000
+    // flat files. At that point shard by id prefix (e.g. claims/c_/...)
+    // like git's loose-object layout. Only fired for Claim writes to
+    // keep the os.stat cost out of the hot path for other entity types.
+    if (fm.type === 'Claim') {
+      await maybeWarnClaimDirectorySize(safeJoin(root, dir));
+    }
     return path.relative(root, file);
   };
 

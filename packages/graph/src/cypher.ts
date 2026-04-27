@@ -181,3 +181,31 @@ RETURN c.id AS id,
        s.id AS sourceId
 ORDER BY validAt DESC
 LIMIT 100`;
+
+/**
+ * Upsert a Concept-Concept co-occurrence edge. Unlike the bi-temporal
+ * buildUpsertEdge — which models "current relationship" semantics with
+ * explicit invalid_at — co-occurrence is additive: each new source that
+ * mentions the same pair bumps cooccurrence_count + appends source_id
+ * to the sources[] list. The MERGE keys on (from, to, kind) so a single
+ * edge accumulates evidence rather than spawning parallel edges.
+ *
+ * Topic detection (Louvain) reads cooccurrence_count as edge weight in
+ * a follow-up upgrade; for now any positive count counts.
+ *
+ * Self-loop guard at caller (we never call this with from == to).
+ */
+export const buildUpsertCooccurrenceEdge = (): string =>
+  `MATCH (a {id: $from}), (b {id: $to})
+MERGE (a)-[r:RELATED_TO {kind: 'cooccurrence'}]->(b)
+ON CREATE SET r.cooccurrence_count = 1,
+              r.sources = [$sourceId],
+              r.created_at = $now,
+              r.updated_at = $now
+ON MATCH SET r.cooccurrence_count = coalesce(r.cooccurrence_count, 0) + 1,
+             r.sources = CASE WHEN $sourceId IN coalesce(r.sources, [])
+                              THEN r.sources
+                              ELSE coalesce(r.sources, []) + $sourceId
+                         END,
+             r.updated_at = $now
+RETURN r.cooccurrence_count AS count`;

@@ -85,7 +85,7 @@ describe('runCost', () => {
 
   it('respects an explicit --since', async () => {
     await runInit(config);
-    const result = runCost(config, '2030-01-01T00:00:00.000Z');
+    const result = runCost(config, { sinceIso: '2030-01-01T00:00:00.000Z' });
     expect(result.totalUsd).toBe(0);
     expect(result.sinceIso).toBe('2030-01-01T00:00:00.000Z');
   });
