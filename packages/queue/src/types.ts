@@ -63,8 +63,12 @@ export type BookmarkSource = (typeof BOOKMARK_SOURCES)[number];
 export const BOOKMARK_STATUSES = ['new', 'synced', 'failed', 'skipped'] as const;
 export type BookmarkStatus = (typeof BOOKMARK_STATUSES)[number];
 
+export const BOOKMARK_KINDS = ['organic', 'derived'] as const;
+export type BookmarkKind = (typeof BOOKMARK_KINDS)[number];
+
 export const BookmarkSourceSchema = z.enum(BOOKMARK_SOURCES);
 export const BookmarkStatusSchema = z.enum(BOOKMARK_STATUSES);
+export const BookmarkKindSchema = z.enum(BOOKMARK_KINDS);
 
 /**
  * One row in the bookmark_ledger. Carries everything xs bookmarks sync
@@ -90,6 +94,11 @@ export interface BookmarkEntry {
   lastError: string | null;
   createdAt: string;
   updatedAt: string;
+  // v3 — hard auto-expand provenance + edit-detection.
+  parentEntryId: string | null;
+  sourceKind: BookmarkKind;
+  textHash: string | null;
+  supersededAt: string | null;
 }
 
 /** Input for upsertBookmark — minimal, the queue assigns timestamps + status defaults. */
@@ -103,13 +112,19 @@ export interface BookmarkUpsertInput {
   urls?: string[];
   capturedAt: string;
   tweetCreatedAt?: string | null;
+  parentEntryId?: string | null;
+  sourceKind?: BookmarkKind;
+  textHash?: string | null;
 }
 
 export interface BookmarkListFilter {
   status?: BookmarkStatus;
   source?: BookmarkSource;
+  sourceKind?: BookmarkKind;
   order?: 'oldest' | 'newest';
   limit?: number;
+  /** When true, include rows with superseded_at IS NOT NULL. Default false. */
+  includeSuperseded?: boolean;
 }
 
 export interface BookmarkUpdateFields {

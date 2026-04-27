@@ -6,6 +6,7 @@ export {
 } from './constants.js';
 export type { JudgeContext, ResolveEntityInput, ResolveEntityOptions } from './er.js';
 export { ER_JUDGE_SYSTEM, judgeWithLlm, resolveEntity } from './er.js';
+export { normalizedSurfaceForms, normalizeEntityName } from './normalize.js';
 export type { ReconcileInput } from './reconcile.js';
 export { reconcileClaim } from './reconcile.js';
 export type {

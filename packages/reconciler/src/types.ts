@@ -19,6 +19,20 @@ export interface ErCandidateFinder {
     embedding: number[],
     k: number,
   ) => Promise<{ id: string; score: number }[]>;
+  /**
+   * Find an existing entity of the given type whose name OR any alias
+   * normalizes to one of the supplied surface forms. Returns the
+   * graph id when matched, or null. Used for the cheap pre-flight
+   * pass before the HNSW vector lookup, catches cases vector ER
+   * misses (`AI Agents` / `AI Agent`, `MCP` / `Model Context Protocol`).
+   *
+   * Implementations should run an indexed exact match against a
+   * normalized_name field plus an alias match.
+   */
+  findByNormalizedSurface?: (
+    type: EntityType,
+    surfaceForms: string[],
+  ) => Promise<{ id: string; matchedSurface: string } | null>;
 }
 
 export type ClaimAction = 'ADD' | 'UPDATE' | 'DELETE' | 'NONE';

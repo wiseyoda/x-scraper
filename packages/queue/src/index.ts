@@ -13,6 +13,7 @@ export { MIGRATIONS, SCHEMA_SQL, SCHEMA_VERSION } from './schema.js';
 export type {
   AttemptRecord,
   BookmarkEntry,
+  BookmarkKind,
   BookmarkLedgerStats,
   BookmarkListFilter,
   BookmarkSource,
@@ -25,8 +26,10 @@ export type {
   Run,
 } from './types.js';
 export {
+  BOOKMARK_KINDS,
   BOOKMARK_SOURCES,
   BOOKMARK_STATUSES,
+  BookmarkKindSchema,
   BookmarkSourceSchema,
   BookmarkStatusSchema,
   JobStatusSchema,

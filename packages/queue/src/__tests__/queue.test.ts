@@ -459,4 +459,92 @@ describe('bookmark ledger', () => {
     ).not.toThrow();
     upgraded.close();
   });
+
+  it('forward-migrates a v2 db onto v3 schema preserving existing rows', () => {
+    const dbPath = path.join(dbDir, 'v2-to-v3.sqlite');
+    // Bootstrap then synthesize v2 by dropping v3 columns. SQLite doesn't
+    // support DROP COLUMN cross-version cleanly; rebuild the table without
+    // them and reset user_version.
+    const seed = createSqliteQueue(dbPath);
+    seed.upsertBookmark({
+      entryId: 'org-1',
+      tweetId: '1',
+      source: 'bookmarks',
+      sourceUrl: 'https://x.com/u/status/1',
+      text: 'organic tweet',
+      capturedAt: '2026-01-01T00:00:00.000Z',
+    });
+    seed.close();
+
+    const raw = new Database(dbPath);
+    raw.exec('ALTER TABLE bookmark_ledger RENAME TO bookmark_ledger_v3;');
+    raw.exec(`
+      CREATE TABLE bookmark_ledger (
+        entry_id    TEXT PRIMARY KEY,
+        tweet_id    TEXT NOT NULL,
+        source      TEXT NOT NULL CHECK (source IN ('bookmarks','likes','posts')),
+        source_url  TEXT NOT NULL,
+        author      TEXT,
+        text        TEXT NOT NULL,
+        urls_json   TEXT NOT NULL DEFAULT '[]',
+        captured_at TEXT NOT NULL,
+        tweet_created_at TEXT,
+        status      TEXT NOT NULL CHECK (status IN ('new','synced','failed','skipped')) DEFAULT 'new',
+        synced_at   TEXT,
+        run_id      TEXT,
+        job_id      TEXT,
+        attempts    INTEGER NOT NULL DEFAULT 0,
+        last_error  TEXT,
+        created_at  TEXT NOT NULL,
+        updated_at  TEXT NOT NULL
+      ) WITHOUT ROWID;
+    `);
+    raw.exec(`
+      INSERT INTO bookmark_ledger
+        (entry_id, tweet_id, source, source_url, author, text, urls_json,
+         captured_at, tweet_created_at, status, synced_at, run_id, job_id,
+         attempts, last_error, created_at, updated_at)
+      SELECT entry_id, tweet_id, source, source_url, author, text, urls_json,
+             captured_at, tweet_created_at, status, synced_at, run_id, job_id,
+             attempts, last_error, created_at, updated_at
+      FROM bookmark_ledger_v3;
+    `);
+    raw.exec('DROP TABLE bookmark_ledger_v3;');
+    raw.exec('PRAGMA user_version = 2;');
+    raw.close();
+
+    const upgraded = createSqliteQueue(dbPath);
+    const existing = upgraded.getBookmark('org-1');
+    expect(existing).not.toBeNull();
+    expect(existing?.sourceKind).toBe('organic');
+    expect(existing?.parentEntryId).toBeNull();
+    expect(existing?.textHash).toBeNull();
+    expect(existing?.supersededAt).toBeNull();
+
+    // New derived row insertion + parent_entry_id round-trip.
+    upgraded.upsertBookmark({
+      entryId: 'derived-1',
+      tweetId: 'na',
+      source: 'bookmarks',
+      sourceUrl: 'https://example.com/article',
+      text: '',
+      capturedAt: '2026-01-02T00:00:00.000Z',
+      parentEntryId: 'org-1',
+      sourceKind: 'derived',
+    });
+    const derived = upgraded.getBookmark('derived-1');
+    expect(derived?.parentEntryId).toBe('org-1');
+    expect(derived?.sourceKind).toBe('derived');
+
+    // findBookmarkBySourceUrl finds the derived row.
+    const found = upgraded.findBookmarkBySourceUrl('https://example.com/article');
+    expect(found?.entryId).toBe('derived-1');
+
+    // markBookmarkSuperseded hides the row from non-superseded queries.
+    upgraded.markBookmarkSuperseded('derived-1');
+    expect(upgraded.findBookmarkBySourceUrl('https://example.com/article')).toBeNull();
+    const includingSuperseded = upgraded.listBookmarks({ includeSuperseded: true });
+    expect(includingSuperseded.find((b) => b.entryId === 'derived-1')?.supersededAt).not.toBeNull();
+    upgraded.close();
+  });
 });

@@ -186,6 +186,12 @@ export interface BookmarksSyncOptions {
 export interface BookmarkSyncItem {
   entryId: string;
   source: SourceItem;
+  /**
+   * X.com's resolved t.co targets from the ledger row. Used by the
+   * link-only short-circuit so derived rows still get enqueued for the
+   * actual article URL even when extraction is skipped.
+   */
+  expandedUrls: string[];
 }
 
 export interface BookmarkSyncOutcome {
@@ -215,6 +221,7 @@ export const buildSyncItemFromLedger = (entry: {
   author: string | null;
   text: string;
   capturedAt: string;
+  urls?: string[];
 }): BookmarkSyncItem => {
   const url = canonicalizeUrl(entry.sourceUrl);
   const sourceItem: SourceItem = {
@@ -223,9 +230,14 @@ export const buildSyncItemFromLedger = (entry: {
     url,
     body: entry.text,
     discoveredAt: entry.capturedAt,
+    entryId: entry.entryId,
     ...(entry.author === null ? {} : { byline: entry.author }),
   };
-  return { entryId: entry.entryId, source: sourceItem };
+  // Stash the ledger's expanded urls (X.com's resolved t.co targets) on
+  // the item so the link-only short-circuit can enqueue derived rows
+  // for them — otherwise t.co-only tweets would skip extraction AND
+  // skip auto-expand, losing the linked article entirely.
+  return { entryId: entry.entryId, source: sourceItem, expandedUrls: entry.urls ?? [] };
 };
 
 const PROMPT_VERSION_DEFAULT = { extraction: 1, reconciliation: 1, embedding: 1 };
@@ -318,6 +330,7 @@ export const runBookmarksSync = async (
       author: c.author,
       text: c.text,
       capturedAt: c.capturedAt,
+      urls: c.urls,
     }),
   );
 
@@ -343,8 +356,47 @@ export const runBookmarksSync = async (
     if (isLinkOnly(item)) {
       const start = Date.now();
       const now = new Date().toISOString();
+      let derivedEnqueued = 0;
       try {
         await writeLinkOnlyStub(vault, item, now);
+        // Preserve the linked target URL by enqueueing a derived ledger
+        // row for each X-resolved expanded URL on this bookmark. Without
+        // this the linked article would be lost — link-only short-circuit
+        // bypasses fetch_links, so hard auto-expand never sees it. (Codex
+        // v2 P2.) The next `xs bookmarks sync` pass picks up the derived
+        // rows and runs them through the full ingestor pipeline.
+        if (item.expandedUrls.length > 0) {
+          const expandQueue = createSqliteQueue(config.queuePath);
+          try {
+            const ledgerSource: 'bookmarks' | 'likes' | 'posts' =
+              item.source.sourceKind === 'likes' || item.source.sourceKind === 'posts'
+                ? item.source.sourceKind
+                : 'bookmarks';
+            for (const rawUrl of item.expandedUrls) {
+              let canonical: string;
+              try {
+                canonical = canonicalizeUrl(rawUrl);
+              } catch {
+                continue;
+              }
+              if (canonical === item.source.url) continue;
+              if (expandQueue.findBookmarkBySourceUrl(canonical) !== null) continue;
+              const result = expandQueue.upsertBookmark({
+                entryId: `derived_${entityId('Source', canonical)}`,
+                tweetId: 'derived',
+                source: ledgerSource,
+                sourceUrl: canonical,
+                text: '',
+                capturedAt: now,
+                parentEntryId: item.entryId,
+                sourceKind: 'derived',
+              });
+              if (result === 'inserted') derivedEnqueued += 1;
+            }
+          } finally {
+            expandQueue.close();
+          }
+        }
         outcomes.push({
           entryId: item.entryId,
           runId: 'skip-link-only',
@@ -355,7 +407,10 @@ export const runBookmarksSync = async (
           durationMs: Date.now() - start,
           costUsd: 0,
         });
-        logger.info('bookmarks.sync.skipped_link_only', { entryId: item.entryId });
+        logger.info('bookmarks.sync.skipped_link_only', {
+          entryId: item.entryId,
+          derivedEnqueued,
+        });
       } catch (err) {
         outcomes.push({
           entryId: item.entryId,

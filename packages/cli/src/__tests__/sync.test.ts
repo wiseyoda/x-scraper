@@ -73,6 +73,8 @@ const makeFakeGraph = (): GraphStore & { upserts: GraphNode[]; edges: GraphEdge[
     traverse: () => Promise.resolve([]),
     countNodes: () => Promise.resolve(upserts.length),
     listConceptSubgraph: () => Promise.resolve({ nodes: [], edges: [] }),
+    findEntityByNormalizedSurface: () => Promise.resolve(null),
+    findClaimsForSubject: () => Promise.resolve([]),
     close: () => Promise.resolve(),
   };
 };
@@ -350,5 +352,72 @@ describe('runSync', () => {
 
     const claimUpserts = graph.upserts.filter((u) => u.type === 'Claim');
     expect(claimUpserts.length).toBe(0);
+  });
+
+  it('hard auto-expand: enqueues unseen body URLs as derived ledger rows', async () => {
+    // Tweet body has 3 distinct external URLs + the source URL itself + a
+    // duplicate. Hard auto-expand should write 3 derived rows whose
+    // parent_entry_id points back to the originating tweet.
+    const queue = createSqliteQueue(queuePath);
+    queue.upsertBookmark({
+      entryId: 'tweet-parent',
+      tweetId: '1',
+      source: 'bookmarks',
+      sourceUrl: 'https://x.com/u/status/1',
+      author: 'u',
+      text: 'See https://example.com/a and https://github.com/x/y plus https://t.co/abc and again https://example.com/a',
+      capturedAt: '2026-01-01T00:00:00.000Z',
+    });
+    queue.close();
+
+    const sources: SourceItem[] = [
+      {
+        sourceId: 'src_parent',
+        sourceKind: 'bookmarks',
+        url: 'https://x.com/u/status/1',
+        body: 'See https://example.com/a and https://github.com/x/y plus https://t.co/abc and again https://example.com/a',
+        entryId: 'tweet-parent',
+      },
+    ];
+    const deps = makeDeps({}, sources);
+    const result = await runSync(deps, { source: 'bookmarks' });
+    expect(result.jobsCompleted).toBe(1);
+
+    const derived = deps.queue.listBookmarks({ sourceKind: 'derived' });
+    expect(derived.map((d) => d.sourceUrl).sort()).toEqual([
+      'https://example.com/a',
+      'https://github.com/x/y',
+      'https://t.co/abc',
+    ]);
+    for (const d of derived) {
+      expect(d.parentEntryId).toBe('tweet-parent');
+      expect(d.sourceKind).toBe('derived');
+      expect(d.text).toBe('');
+    }
+
+    // Re-running fetch_links is idempotent at the derived-row level: the
+    // parent source goes through extraction again, but findBookmarkBySourceUrl
+    // sees the existing derived rows and no duplicates are inserted.
+    await runSync(deps, { source: 'bookmarks' });
+    deps.queue.close();
+    const after = createSqliteQueue(queuePath).listBookmarks({ sourceKind: 'derived' });
+    expect(after.length).toBe(3);
+  });
+
+  it('hard auto-expand: skips when no parent entryId (ad-hoc URL sync)', async () => {
+    const sources: SourceItem[] = [
+      {
+        sourceId: 'src_adhoc',
+        sourceKind: 'bookmarks',
+        url: 'https://example.com/adhoc',
+        body: 'Body referencing https://other.com/x but no parent ledger row.',
+        // entryId intentionally undefined — simulates `xs sync --urls=...`
+      },
+    ];
+    const deps = makeDeps({}, sources);
+    await runSync(deps);
+    const derived = deps.queue.listBookmarks({ sourceKind: 'derived' });
+    expect(derived.length).toBe(0);
+    deps.queue.close();
   });
 });

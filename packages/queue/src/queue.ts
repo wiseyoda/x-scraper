@@ -35,6 +35,7 @@ import {
 import { MIGRATIONS, SCHEMA_SQL, SCHEMA_VERSION } from './schema.js';
 import type {
   BookmarkEntry,
+  BookmarkKind,
   BookmarkLedgerStats,
   BookmarkListFilter,
   BookmarkSource,
@@ -180,6 +181,14 @@ export interface JobQueue {
   /** Look up a single ledger entry. */
   getBookmark: (entryId: string) => BookmarkEntry | null;
   /**
+   * Look up a single non-superseded ledger entry by canonical source URL.
+   * Used by hard auto-expand to dedupe discovered URLs against any prior
+   * pull (organic or derived) before enqueuing a new derived row.
+   */
+  findBookmarkBySourceUrl: (sourceUrl: string) => BookmarkEntry | null;
+  /** Mark a ledger row superseded (used by edit-detection on re-pull). */
+  markBookmarkSuperseded: (entryId: string) => void;
+  /**
    * Update mutable status/error fields on a ledger row. `updated_at` is
    * always refreshed; pass `bumpAttempts:true` to atomically increment
    * the attempts counter.
@@ -191,21 +200,32 @@ export interface JobQueue {
 }
 
 /**
- * Apply the bootstrap schema (idempotent CREATE IF NOT EXISTS) and walk
- * forward through any pending migrations to land at SCHEMA_VERSION.
- * A db at user_version=0 is a fresh bootstrap and gets stamped with
- * SCHEMA_VERSION directly. A db ahead of SCHEMA_VERSION is a downgrade
- * and is rejected — running an older binary against a newer db would
- * silently break invariants the newer code expects.
+ * Walk a db to SCHEMA_VERSION. Two paths:
+ *
+ *   • Fresh db (user_version=0): apply SCHEMA_SQL bootstrap directly —
+ *     it's at the latest shape, stamp the version and return.
+ *   • Existing db (user_version > 0): walk forward through MIGRATIONS,
+ *     each of which is responsible for the ALTER/CREATE statements its
+ *     version needs. SCHEMA_SQL is NOT applied to existing dbs because
+ *     it can reference columns added by a later migration (e.g. a
+ *     CREATE INDEX on a v3 column would fail on a v2 db before its
+ *     migration runs). After the walk, idempotent SCHEMA_SQL is safe to
+ *     re-apply for drift recovery.
+ *
+ * A db ahead of SCHEMA_VERSION is a downgrade and is rejected — running
+ * an older binary against a newer db would silently break invariants
+ * the newer code expects.
  */
 const ensureSchema = (db: DatabaseType): void => {
-  db.exec(SCHEMA_SQL);
+  // Per-connection pragmas first so they apply regardless of branch.
+  db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;');
   const versionRow = db.prepare('PRAGMA user_version').get() as
     | { user_version: number }
     | undefined;
   let current = versionRow?.user_version ?? 0;
   if (current === 0) {
-    // Fresh bootstrap: SCHEMA_SQL is already at the latest shape.
+    // Fresh bootstrap: SCHEMA_SQL is at the latest shape.
+    db.exec(SCHEMA_SQL);
     db.exec(`PRAGMA user_version = ${String(SCHEMA_VERSION)};`);
     return;
   }
@@ -225,6 +245,10 @@ const ensureSchema = (db: DatabaseType): void => {
     db.exec(`PRAGMA user_version = ${String(next)};`);
     current = next;
   }
+  // After migrations land, run SCHEMA_SQL to catch any drift (e.g. a
+  // missed index in a hand-edited db). All statements are CREATE IF
+  // NOT EXISTS so this is a no-op when migrations did the right thing.
+  db.exec(SCHEMA_SQL);
 };
 
 export const createSqliteQueue = (dbPath: string): JobQueue => {
@@ -320,11 +344,18 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
     insertBookmark: db.prepare(
       `INSERT INTO bookmark_ledger (
          entry_id, tweet_id, source, source_url, author, text, urls_json,
-         captured_at, tweet_created_at, status, attempts, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', 0, ?, ?)
+         captured_at, tweet_created_at, status, attempts, created_at, updated_at,
+         parent_entry_id, source_kind, text_hash
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', 0, ?, ?, ?, ?, ?)
        ON CONFLICT(entry_id) DO NOTHING`,
     ),
     selectBookmark: db.prepare(`SELECT * FROM bookmark_ledger WHERE entry_id = ?`),
+    selectBookmarkBySourceUrl: db.prepare(
+      `SELECT * FROM bookmark_ledger WHERE source_url = ? AND superseded_at IS NULL LIMIT 1`,
+    ),
+    markSuperseded: db.prepare(
+      `UPDATE bookmark_ledger SET superseded_at = ?, updated_at = ? WHERE entry_id = ?`,
+    ),
     // Order by tweet_created_at when known (so "oldest" means oldest tweet,
     // not oldest pull batch); fall back to captured_at for rows without
     // a parseable created_at.
@@ -608,6 +639,10 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
     last_error: string | null;
     created_at: string;
     updated_at: string;
+    parent_entry_id: string | null;
+    source_kind: BookmarkKind;
+    text_hash: string | null;
+    superseded_at: string | null;
   }
 
   const parseUrls = (json: string): string[] => {
@@ -638,6 +673,10 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
     lastError: r.last_error,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
+    parentEntryId: r.parent_entry_id,
+    sourceKind: r.source_kind,
+    textHash: r.text_hash,
+    supersededAt: r.superseded_at,
   });
 
   const upsertBookmark = (input: BookmarkUpsertInput): 'inserted' | 'unchanged' => {
@@ -654,33 +693,53 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
       input.tweetCreatedAt ?? null,
       now,
       now,
+      input.parentEntryId ?? null,
+      input.sourceKind ?? 'organic',
+      input.textHash ?? null,
     );
     return result.changes > 0 ? 'inserted' : 'unchanged';
+  };
+
+  const findBookmarkBySourceUrl = (sourceUrl: string): BookmarkEntry | null => {
+    const row = stmts.selectBookmarkBySourceUrl.get(sourceUrl) as BookmarkRow | undefined;
+    return row === undefined ? null : rowToBookmark(row);
+  };
+
+  const markBookmarkSuperseded = (entryId: string): void => {
+    const now = isoNow();
+    stmts.markSuperseded.run(now, now, entryId);
   };
 
   const listBookmarks = (filter: BookmarkListFilter = {}): BookmarkEntry[] => {
     const order = filter.order ?? 'oldest';
     const desc = order === 'newest';
-    const rows = ((): unknown[] => {
-      if (filter.source !== undefined && filter.status !== undefined) {
-        return desc
-          ? stmts.listBookmarksBySourceStatusDesc.all(filter.source, filter.status)
-          : stmts.listBookmarksBySourceStatus.all(filter.source, filter.status);
-      }
-      if (filter.source !== undefined) {
-        return desc
-          ? stmts.listBookmarksBySourceDesc.all(filter.source)
-          : stmts.listBookmarksBySource.all(filter.source);
-      }
-      if (filter.status !== undefined) {
-        return desc
-          ? stmts.listBookmarksByStatusDesc.all(filter.status)
-          : stmts.listBookmarksByStatus.all(filter.status);
-      }
-      return desc ? stmts.listBookmarksAllDesc.all() : stmts.listBookmarksAll.all();
-    })();
-    const all = (rows as BookmarkRow[]).map(rowToBookmark);
-    return filter.limit === undefined ? all : all.slice(0, filter.limit);
+    const includeSuperseded = filter.includeSuperseded === true;
+    // Build the SQL dynamically. Compound filters (status × source × kind ×
+    // includeSuperseded) make the prepared-statement matrix hard to maintain;
+    // sqlite query plan caches generated SQL so the cost is amortized.
+    const where: string[] = [];
+    const args: unknown[] = [];
+    if (filter.status !== undefined) {
+      where.push('status = ?');
+      args.push(filter.status);
+    }
+    if (filter.source !== undefined) {
+      where.push('source = ?');
+      args.push(filter.source);
+    }
+    if (filter.sourceKind !== undefined) {
+      where.push('source_kind = ?');
+      args.push(filter.sourceKind);
+    }
+    if (!includeSuperseded) {
+      where.push('superseded_at IS NULL');
+    }
+    const whereSql = where.length === 0 ? '' : ` WHERE ${where.join(' AND ')}`;
+    const orderSql = ` ORDER BY COALESCE(tweet_created_at, captured_at) ${desc ? 'DESC' : 'ASC'}`;
+    const limitSql = filter.limit === undefined ? '' : ` LIMIT ${String(filter.limit)}`;
+    const sql = `SELECT * FROM bookmark_ledger${whereSql}${orderSql}${limitSql}`;
+    const rows = db.prepare(sql).all(...args) as BookmarkRow[];
+    return rows.map(rowToBookmark);
   };
 
   const getBookmark = (entryId: string): BookmarkEntry | null => {
@@ -772,6 +831,8 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
     upsertBookmark,
     listBookmarks,
     getBookmark,
+    findBookmarkBySourceUrl,
+    markBookmarkSuperseded,
     updateBookmark,
     bookmarkStats,
     close,

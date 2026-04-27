@@ -124,3 +124,38 @@ export const readVectorIndexDims = (): string =>
   `SHOW VECTOR INDEXES YIELD name, options
 WHERE name = $name
 RETURN options.indexConfig.\`vector.dimensions\` AS dims`;
+
+/**
+ * Find an entity of the given type by exact match on normalized_name OR
+ * any member of normalized_aliases. Caller computes the surface forms
+ * (cheap, deterministic — see reconciler/normalize.ts) and passes them
+ * in. We accept up to a handful of forms; the index makes this O(1)-ish
+ * per form.
+ */
+export const buildFindByNormalizedSurface = (label: EntityType): string => {
+  assertValidLabel(label);
+  return `MATCH (n:${label})
+WHERE n.normalized_name IN $surfaces
+   OR ANY(a IN coalesce(n.normalized_aliases, []) WHERE a IN $surfaces)
+RETURN n.id AS id,
+       coalesce(n.normalized_name, head(n.normalized_aliases)) AS matchedSurface
+LIMIT 1`;
+};
+
+/**
+ * Lookup current claims for a subject. Joins through the EXTRACTED_FROM
+ * edge (current only — invalid_at IS NULL) so callers can invalidate
+ * the right edge on UPDATE/DELETE.
+ */
+export const buildFindClaimsForSubject = (): string =>
+  `MATCH (c:Claim {subject: $subject})-[r:EXTRACTED_FROM]->(s:Source)
+WHERE coalesce(r.invalid_at, '') = ''
+RETURN c.id AS id,
+       c.subject AS subject,
+       c.predicate AS predicate,
+       c.object AS object,
+       coalesce(r.valid_at, '') AS validAt,
+       r.invalid_at AS invalidAt,
+       s.id AS sourceId
+ORDER BY validAt DESC
+LIMIT 100`;

@@ -24,6 +24,8 @@ import {
 import { readVectorIndexDims } from './cypher.js';
 import {
   buildCountNodes,
+  buildFindByNormalizedSurface,
+  buildFindClaimsForSubject,
   buildIdConstraint,
   buildInvalidateEdge,
   buildTraversal,
@@ -35,6 +37,7 @@ import {
 } from './cypher.js';
 import type {
   ConceptSubgraph,
+  ExistingClaimRecord,
   GraphEdge,
   GraphInitOptions,
   GraphNode,
@@ -263,6 +266,39 @@ export const createNeo4jGraph = (config: Neo4jConfig): GraphStore => {
     });
   };
 
+  const findEntityByNormalizedSurface = async (
+    label: EntityType,
+    surfaceForms: string[],
+  ): Promise<{ id: string; matchedSurface: string } | null> => {
+    if (surfaceForms.length === 0) return null;
+    return await withSession(async (session) => {
+      const result = await session.run(buildFindByNormalizedSurface(label), {
+        surfaces: surfaceForms,
+      });
+      const row = result.records[0];
+      if (row === undefined) return null;
+      return {
+        id: row.get('id') as string,
+        matchedSurface: (row.get('matchedSurface') as string | null) ?? '',
+      };
+    });
+  };
+
+  const findClaimsForSubject = async (subject: string): Promise<ExistingClaimRecord[]> => {
+    return await withSession(async (session) => {
+      const result = await session.run(buildFindClaimsForSubject(), { subject });
+      return result.records.map((r) => ({
+        id: r.get('id') as string,
+        subject: r.get('subject') as string,
+        predicate: (r.get('predicate') as string | null) ?? '',
+        object: (r.get('object') as string | null) ?? '',
+        validAt: r.get('validAt') as string,
+        invalidAt: r.get('invalidAt') as string | null,
+        sourceId: r.get('sourceId') as string,
+      }));
+    });
+  };
+
   const close = async (): Promise<void> => {
     await driver.close();
   };
@@ -276,6 +312,8 @@ export const createNeo4jGraph = (config: Neo4jConfig): GraphStore => {
     traverse,
     countNodes,
     listConceptSubgraph,
+    findEntityByNormalizedSurface,
+    findClaimsForSubject,
     close,
   };
 };

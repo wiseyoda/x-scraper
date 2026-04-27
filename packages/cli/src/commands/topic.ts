@@ -17,9 +17,10 @@ import Anthropic from '@anthropic-ai/sdk';
 import { type CommunityResult, detectCommunities } from '@x-scraper/community';
 import { entityId, type Frontmatter } from '@x-scraper/core';
 import { type ConceptSubgraph, createNeo4jGraph, type GraphStore } from '@x-scraper/graph';
-import { createClaudeProvider, type LlmProvider } from '@x-scraper/llm';
+import { createClaudeProvider, type LlmCostSink, type LlmProvider } from '@x-scraper/llm';
 import type { Logger } from '@x-scraper/observability';
 import { createLogger, jsonLineSink } from '@x-scraper/observability';
+import { createSqliteQueue } from '@x-scraper/queue';
 import { createMarkdownVault, type VaultStore } from '@x-scraper/vault';
 
 import type { CliConfig } from '../config.js';
@@ -85,14 +86,18 @@ const stdoutLogger = (): Logger =>
     }),
   });
 
-const wireLlm = (env: Record<string, string>): LlmProvider => {
+const wireLlm = (env: Record<string, string>, cost?: LlmCostSink): LlmProvider => {
   const apiKey = process.env.ANTHROPIC_API_KEY ?? env.ANTHROPIC_API_KEY;
   if (apiKey === undefined || apiKey.length === 0) {
     throw new Error('xs topic detect: ANTHROPIC_API_KEY is required for synthesis');
   }
   const client = new Anthropic({ apiKey });
+  // Cost sink wires synthesis charges into cost_ledger so `xs cost`
+  // reflects them. Without this, synthesis usage is reported only via
+  // the command's return value and lost after process exit. (Codex v2.)
   return createClaudeProvider({
     messagesCreate: (input) => client.messages.create(input),
+    ...(cost === undefined ? {} : { cost }),
   });
 };
 
@@ -204,8 +209,16 @@ export const runTopicDetect = async (
   const minCommunitySize = options.minCommunitySize ?? DEFAULT_MIN_COMMUNITY_SIZE;
   const dryRun = options.dryRun ?? false;
 
+  // Open the queue when we'll persist anything to cost_ledger — the
+  // synthesis path bills LLM calls; dry-run / no-synthesize paths skip
+  // it. Closed in the finally block alongside graph + vault.
+  const queue =
+    synthesize && !dryRun && options.llm === undefined ? createSqliteQueue(config.queuePath) : null;
+  const llmCost: LlmCostSink | undefined =
+    queue === null ? undefined : { recordCost: (c) => queue.recordCost(c) };
+
   const graph = options.graph ?? wireGraph(env);
-  const llm: LlmProvider | null = synthesize ? (options.llm ?? wireLlm(env)) : null;
+  const llm: LlmProvider | null = synthesize ? (options.llm ?? wireLlm(env, llmCost)) : null;
   const vault = options.vault ?? createMarkdownVault(config.vaultDir);
 
   try {
@@ -322,5 +335,6 @@ export const runTopicDetect = async (
     };
   } finally {
     if (options.graph === undefined) await graph.close();
+    if (queue !== null) queue.close();
   }
 };

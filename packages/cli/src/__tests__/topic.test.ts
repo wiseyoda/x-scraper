@@ -58,6 +58,8 @@ const fakeGraph = (
         nodes: nodes.map((n) => ({ id: n.id, type: 'Concept' as const, name: n.name })),
         edges: edges.map((e) => ({ from: e.from, to: e.to, type: 'RELATED_TO' as const })),
       }),
+    findEntityByNormalizedSurface: () => Promise.resolve(null),
+    findClaimsForSubject: () => Promise.resolve([]),
     close: () => Promise.resolve(),
   };
 };

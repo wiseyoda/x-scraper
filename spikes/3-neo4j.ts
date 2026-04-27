@@ -126,8 +126,13 @@ const main = async (): Promise<void> => {
   console.log(`neo4j server: ${info.agent ?? '(unknown)'}`);
 
   const session = driver.session({ database: dbName });
+  // Tracks whether the spike actually started writing; the finally
+  // block must NOT drop production indexes/constraints when the
+  // populated-DB guard refused to run. (Codex v2 P2.)
+  let didWrite = false;
   try {
     await refuseIfDbIsPopulated(session);
+    didWrite = true;
     console.log('\n=== schema ===');
     await time('wipe prior spike data + indexes', async () => {
       await wipeSpikeData(session);
@@ -263,12 +268,15 @@ const main = async (): Promise<void> => {
     console.log(`\nspike 3 ${ok ? 'PASSED' : 'FAILED'}`);
     if (!ok) process.exit(1);
   } finally {
-    // Always clean up — never leave xs_spike3_* nodes behind. The earlier
-    // "did not clean up" version of this spike was the original source of
-    // 1000 orphan claim-{i} nodes in production.
-    await wipeSpikeData(session).catch((err: unknown) => {
-      console.error('cleanup failed:', err);
-    });
+    // Only clean up if we actually wrote data. wipeSpikeData drops
+    // claim_embed_idx and the id constraints — destructive against a
+    // populated production graph. Run it only when the spike's own
+    // writes need cleaning. (Codex v2 P2.)
+    if (didWrite) {
+      await wipeSpikeData(session).catch((err: unknown) => {
+        console.error('cleanup failed:', err);
+      });
+    }
     await session.close();
     await driver.close();
   }

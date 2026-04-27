@@ -6,12 +6,17 @@
  */
 
 import type { Frontmatter } from '@x-scraper/core';
-import { contentHash, entityId } from '@x-scraper/core';
+import { canonicalizeUrl, contentHash, entityId } from '@x-scraper/core';
 import { extract } from '@x-scraper/extractor';
 import { ingest } from '@x-scraper/ingestor';
 import type { Job, Stage } from '@x-scraper/queue';
 import type { ExistingClaim } from '@x-scraper/reconciler';
-import { reconcileClaim, resolveEntity } from '@x-scraper/reconciler';
+import {
+  normalizedSurfaceForms,
+  normalizeEntityName,
+  reconcileClaim,
+  resolveEntity,
+} from '@x-scraper/reconciler';
 
 import type { JobContext, SourceItem, SyncDeps, SyncOptions } from './types.js';
 
@@ -36,26 +41,108 @@ const inferContentType = (url: string): 'tweet' | 'article' | 'repo' | 'video' |
 const URL_RE = /https?:\/\/[^\s)]+/g;
 
 export const fetchLinksStage = async (deps: SyncDeps, ctx: JobContext): Promise<void> => {
-  // v1.5 soft auto-expand: scan the source body (when pre-fetched, e.g.
-  // tweet text from the bookmark ledger) for embedded URLs and log them.
-  // Hard auto-expand (enqueueing follow-up jobs with a parent_entry_id
-  // dedupe column) is deferred — see HANDOFF.md.
+  // Hard auto-expand: scan the source body for embedded URLs, dedupe
+  // against the live bookmark_ledger, and enqueue any unseen URL as a
+  // derived ledger row whose parent_entry_id points back to the
+  // current bookmark. The next `xs bookmarks sync` pass picks them up
+  // and runs them through the existing ingestor → extractor → graph
+  // pipeline (article/pdf/repo/youtube routing handled by the URL
+  // host classifier in extractTextStage).
   if (ctx.source.body === undefined || ctx.source.body.length === 0) {
     await Promise.resolve();
     return;
   }
   const matches = ctx.source.body.match(URL_RE) ?? [];
-  // Drop the source URL itself (always present in tweet text as a t.co
-  // self-reference for media tweets) and dedupe.
-  const unique = Array.from(new Set(matches.filter((u) => !u.includes(ctx.source.url))));
-  if (unique.length > 0) {
+  // Trim trailing punctuation that the lazy regex over-captures (",.;!)
+  // and drop the source URL itself (always present in tweet text as a
+  // t.co self-reference for media tweets), then dedupe by canonical
+  // form. Skip same-host self-references too.
+  const sourceHost = ((): string => {
+    try {
+      return new URL(ctx.source.url).host;
+    } catch {
+      return '';
+    }
+  })();
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of matches) {
+    const trimmed = raw.replace(/[.,;!?)\]]+$/, '');
+    if (trimmed.length === 0) continue;
+    if (trimmed === ctx.source.url) continue;
+    let canonical: string;
+    try {
+      canonical = canonicalizeUrl(trimmed);
+    } catch {
+      continue;
+    }
+    if (seen.has(canonical)) continue;
+    seen.add(canonical);
+    let host = '';
+    try {
+      host = new URL(canonical).host;
+    } catch {
+      continue;
+    }
+    if (host === sourceHost) continue;
+    candidates.push(canonical);
+  }
+  if (candidates.length === 0) {
     deps.logger.info('sync.fetch_links.discovered', {
       sourceId: ctx.source.sourceId,
-      count: unique.length,
-      urls: unique,
+      count: 0,
     });
+    await Promise.resolve();
+    return;
   }
-  await Promise.resolve();
+  // No parent ledger row to attribute derivation to — log discovery
+  // only. (Happens for ad-hoc `xs sync --urls=...` invocations.)
+  if (ctx.source.entryId === undefined) {
+    deps.logger.info('sync.fetch_links.discovered', {
+      sourceId: ctx.source.sourceId,
+      count: candidates.length,
+      urls: candidates,
+      derived: 0,
+      reason: 'no_parent_entry_id',
+    });
+    await Promise.resolve();
+    return;
+  }
+  const parentSourceKind = ctx.source.sourceKind;
+  // bookmark_ledger.source CHECK constraint allows only bookmarks/likes/posts;
+  // anything else falls back to 'bookmarks' since the column tracks origin
+  // family, not derivation lineage (sourceKind='derived' lives in source_kind).
+  const ledgerSource: 'bookmarks' | 'likes' | 'posts' =
+    parentSourceKind === 'likes' || parentSourceKind === 'posts' ? parentSourceKind : 'bookmarks';
+  let inserted = 0;
+  let alreadyKnown = 0;
+  for (const url of candidates) {
+    const existing = deps.queue.findBookmarkBySourceUrl(url);
+    if (existing !== null) {
+      alreadyKnown += 1;
+      continue;
+    }
+    // Deterministic entry_id keeps re-runs idempotent.
+    const derivedEntryId = `derived_${entityId('Source', url)}`;
+    const result = deps.queue.upsertBookmark({
+      entryId: derivedEntryId,
+      tweetId: 'derived',
+      source: ledgerSource,
+      sourceUrl: url,
+      text: '',
+      capturedAt: new Date().toISOString(),
+      parentEntryId: ctx.source.entryId,
+      sourceKind: 'derived',
+    });
+    if (result === 'inserted') inserted += 1;
+    else alreadyKnown += 1;
+  }
+  deps.logger.info('sync.fetch_links.discovered', {
+    sourceId: ctx.source.sourceId,
+    count: candidates.length,
+    derived: inserted,
+    alreadyKnown,
+  });
 };
 
 export const extractTextStage = async (deps: SyncDeps, ctx: JobContext): Promise<void> => {
@@ -136,6 +223,7 @@ export const resolveEntsStage = async (deps: SyncDeps, ctx: JobContext): Promise
     const judgement = await resolveEntity(
       {
         candidateName: entity.name,
+        candidateAliases: entity.aliases,
         candidateEmbedding: ctx.embedding,
         type: entity.type,
       },
@@ -272,10 +360,21 @@ export const updateGraphStage = async (deps: SyncDeps, ctx: JobContext): Promise
     const resolution = ctx.entityResolutions.get(entity.id);
     if (resolution === undefined) continue;
     if (entity.type === 'Source' || entity.type === 'Claim' || entity.type === 'Topic') continue;
+    // normalized_name + normalized_aliases let the reconciler's
+    // pre-flight surface-form lookup MATCH this entity on cheap exact
+    // equality (catches `AI Agents`/`AI Agent` etc that vector ER
+    // misses). Computed at write time; queryable indexed.
+    const normalizedName = normalizeEntityName(entity.name);
+    const normalizedAliases = normalizedSurfaceForms('', entity.aliases);
     await deps.graph.upsertNode({
       id: resolution.graphId,
       type: entity.type,
-      props: { name: entity.name, aliases: entity.aliases },
+      props: {
+        name: entity.name,
+        aliases: entity.aliases,
+        normalized_name: normalizedName,
+        normalized_aliases: normalizedAliases,
+      },
     });
     await deps.graph.upsertEdge({
       from: resolution.graphId,

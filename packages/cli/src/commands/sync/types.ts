@@ -34,6 +34,13 @@ export interface SourceItem {
   byline?: string;
   /** ISO timestamp when the source was discovered. */
   discoveredAt?: string;
+  /**
+   * Originating bookmark_ledger entry_id when this source came from a
+   * ledger row. Used by hard auto-expand to set parent_entry_id on any
+   * derived rows it discovers in the body. Undefined for ad-hoc URL
+   * syncs (`xs sync --urls=...`).
+   */
+  entryId?: string;
 }
 
 export interface ClaimFinder {

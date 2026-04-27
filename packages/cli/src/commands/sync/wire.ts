@@ -128,13 +128,26 @@ export const wireSyncDeps = async (
       if (type !== 'Claim') return [];
       return graph.vectorSearch('Claim', embedding, k);
     },
+    findByNormalizedSurface: (type, surfaces) =>
+      graph.findEntityByNormalizedSurface(type, surfaces),
   };
 
-  // Existing-claims lookup. For v1 we keep this simple: the graph has no
-  // by-subject index yet, so we return an empty list — every incoming
-  // claim is treated as ADD. Slice 8 / a follow-up adds a real lookup.
+  // Existing-claims lookup wired to the graph adapter — replaces the old
+  // empty-stub that made every claim land as ADD. UPDATE/DELETE
+  // reconciliation paths now actually fire.
   const claimFinder: ClaimFinder = {
-    findClaimsForSubject: (_subject: string): Promise<ExistingClaim[]> => Promise.resolve([]),
+    findClaimsForSubject: async (subject: string): Promise<ExistingClaim[]> => {
+      const rows = await graph.findClaimsForSubject(subject);
+      return rows.map((r) => ({
+        id: r.id,
+        subject: r.subject,
+        predicate: r.predicate,
+        object: r.object,
+        validAt: r.validAt,
+        invalidAt: r.invalidAt,
+        sourceId: r.sourceId,
+      }));
+    },
   };
 
   const logger = createLogger({

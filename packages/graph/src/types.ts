@@ -51,6 +51,16 @@ export interface ConceptSubgraph {
   edges: ConceptEdgeRecord[];
 }
 
+export interface ExistingClaimRecord {
+  id: string;
+  subject: string;
+  predicate: string;
+  object: string;
+  validAt: string;
+  invalidAt: string | null;
+  sourceId: string;
+}
+
 export interface GraphStore {
   init: (options?: GraphInitOptions) => Promise<void>;
   upsertNode: (node: GraphNode) => Promise<void>;
@@ -65,6 +75,24 @@ export interface GraphStore {
    * community detector. Returns nodes and edges deduped by id.
    */
   listConceptSubgraph: () => Promise<ConceptSubgraph>;
+  /**
+   * Look up an entity of the given type whose `normalized_name` or any
+   * member of `normalized_aliases` exactly matches one of the supplied
+   * surface forms. Used by the reconciler's pre-flight pass. Returns
+   * the first match by id (caller treats matches as opaque).
+   */
+  findEntityByNormalizedSurface: (
+    label: EntityType,
+    surfaceForms: string[],
+  ) => Promise<{ id: string; matchedSurface: string } | null>;
+  /**
+   * Return the current (invalid_at IS NULL) Claim nodes whose `subject`
+   * exactly matches the supplied string, alongside their originating
+   * source id (resolved from the EXTRACTED_FROM edge). Used by the
+   * reconciler to find UPDATE/DELETE candidates for an incoming claim.
+   * Capped at 100 to avoid runaway result sets.
+   */
+  findClaimsForSubject: (subject: string) => Promise<ExistingClaimRecord[]>;
   close: () => Promise<void>;
 }
 

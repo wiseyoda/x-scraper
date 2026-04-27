@@ -18,7 +18,7 @@
  * with explicit data-preserving SQL.
  */
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const SCHEMA_SQL = `
 PRAGMA journal_mode = WAL;
@@ -109,13 +109,27 @@ CREATE TABLE IF NOT EXISTS bookmark_ledger (
   attempts    INTEGER NOT NULL DEFAULT 0,
   last_error  TEXT,
   created_at  TEXT NOT NULL,
-  updated_at  TEXT NOT NULL
+  updated_at  TEXT NOT NULL,
+  -- v3 — hard auto-expand provenance, edit-detection, audit trail.
+  -- parent_entry_id is the originating bookmark when source_kind='derived'
+  -- (e.g. an Article URL discovered inside a tweet body); NULL for organic
+  -- bookmarks pulled directly from X.com. text_hash lets re-pulls detect
+  -- edits and supersede the prior row instead of clobbering it.
+  parent_entry_id TEXT REFERENCES bookmark_ledger(entry_id),
+  source_kind TEXT NOT NULL DEFAULT 'organic'
+    CHECK (source_kind IN ('organic','derived')),
+  text_hash TEXT,
+  superseded_at TEXT
 ) WITHOUT ROWID;
 
 CREATE INDEX IF NOT EXISTS bookmark_ledger_status_captured_idx
   ON bookmark_ledger (status, captured_at);
 CREATE INDEX IF NOT EXISTS bookmark_ledger_source_captured_idx
   ON bookmark_ledger (source, captured_at);
+CREATE INDEX IF NOT EXISTS bookmark_ledger_parent_idx
+  ON bookmark_ledger (parent_entry_id);
+CREATE INDEX IF NOT EXISTS bookmark_ledger_source_url_idx
+  ON bookmark_ledger (source_url);
 `;
 
 /**
@@ -149,5 +163,20 @@ export const MIGRATIONS: Record<number, string> = {
       ON bookmark_ledger (status, captured_at);
     CREATE INDEX IF NOT EXISTS bookmark_ledger_source_captured_idx
       ON bookmark_ledger (source, captured_at);
+  `,
+  3: `
+    -- Note: SQLite ALTER TABLE ADD COLUMN can't add NOT NULL without a
+    -- default; source_kind has 'organic' default which covers existing
+    -- rows. parent_entry_id stays nullable. text_hash + superseded_at
+    -- start NULL and get populated as new pulls happen.
+    ALTER TABLE bookmark_ledger ADD COLUMN parent_entry_id TEXT
+      REFERENCES bookmark_ledger(entry_id);
+    ALTER TABLE bookmark_ledger ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'organic';
+    ALTER TABLE bookmark_ledger ADD COLUMN text_hash TEXT;
+    ALTER TABLE bookmark_ledger ADD COLUMN superseded_at TEXT;
+    CREATE INDEX IF NOT EXISTS bookmark_ledger_parent_idx
+      ON bookmark_ledger (parent_entry_id);
+    CREATE INDEX IF NOT EXISTS bookmark_ledger_source_url_idx
+      ON bookmark_ledger (source_url);
   `,
 };
