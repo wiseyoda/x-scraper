@@ -17,7 +17,7 @@ import {
   EXTRACTION_PROMPT_VERSION,
   MAX_REPORTED_VALIDATION_ISSUES,
 } from './constants.js';
-import { EXTRACTION_REPAIR_HINT, EXTRACTION_SYSTEM_V1 } from './prompts/extraction-v1.js';
+import { EXTRACTION_REPAIR_HINT_V2, EXTRACTION_SYSTEM_V2 } from './prompts/extraction-v2.js';
 import { type ExtractionResult, ExtractionResultSchema } from './schemas.js';
 
 export interface ExtractInput {
@@ -98,13 +98,13 @@ export const extract = async (llm: LlmProvider, input: ExtractInput): Promise<Ex
       { role: 'user', content: userContent },
     ];
     if (attempt > 0) {
-      messages.push({ role: 'user', content: EXTRACTION_REPAIR_HINT(lastError) });
+      messages.push({ role: 'user', content: EXTRACTION_REPAIR_HINT_V2(lastError) });
     }
 
     const reply = await llm.complete({
       ...(input.model === undefined ? {} : { model: input.model }),
       ...(input.maxTokens === undefined ? {} : { maxTokens: input.maxTokens }),
-      system: [{ text: EXTRACTION_SYSTEM_V1 }],
+      system: [{ text: EXTRACTION_SYSTEM_V2 }],
       messages,
       ...(input.cost === undefined ? {} : { cost: input.cost }),
     });

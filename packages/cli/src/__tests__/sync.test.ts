@@ -136,7 +136,30 @@ const makeDeps = (overrides: Partial<SyncDeps>, sources: SourceItem[]): SyncDeps
       await fs.writeFile(target, JSON.stringify(record.frontmatter) + '\n' + record.body);
       return path.relative(vaultPath, target);
     },
-    read: () => Promise.reject(new Error('not implemented in stub')),
+    // Round-trips the JSON-frontmatter format the stub `write` uses so
+    // tests can read back what they just wrote (e.g. for verifying
+    // entity-stub merge across multiple sources).
+    read: async (id, type) => {
+      const sub = type.toLowerCase();
+      const target = path.join(vaultPath, sub, `${id}.md`);
+      let raw: string;
+      try {
+        raw = await fs.readFile(target, 'utf8');
+      } catch (err) {
+        if (
+          err instanceof Error &&
+          'code' in err &&
+          (err as NodeJS.ErrnoException).code === 'ENOENT'
+        ) {
+          throw new Error(`vault entry not found: ${type} ${id}`);
+        }
+        throw err;
+      }
+      const newlineIdx = raw.indexOf('\n');
+      const fmText = newlineIdx === -1 ? raw : raw.slice(0, newlineIdx);
+      const body = newlineIdx === -1 ? '' : raw.slice(newlineIdx + 1);
+      return { frontmatter: JSON.parse(fmText) as never, body };
+    },
     list: () => Promise.resolve([]),
     commit: () => Promise.resolve(null),
   };
@@ -404,6 +427,132 @@ describe('runSync', () => {
     deps.queue.close();
     const after = createSqliteQueue(queuePath).listBookmarks({ sourceKind: 'derived' });
     expect(after.length).toBe(3);
+  });
+
+  it('auto-ingests entity URLs as derived ledger rows (Repo with github alias)', async () => {
+    const repoExtraction = JSON.stringify({
+      entities: [
+        {
+          id: 'repo_x',
+          type: 'Repo',
+          name: 'Some Project',
+          aliases: ['https://github.com/owner/some-project'],
+        },
+      ],
+      claims: [],
+      relationships: [],
+    });
+    const articleIngestor: Ingestor = {
+      kind: 'article',
+      matches: () => true,
+      ingest: (url) =>
+        Promise.resolve({
+          url,
+          kind: 'article',
+          title: 'Article About Repos',
+          body: 'Body that satisfies any minimum length requirement at all times.',
+          byline: null,
+          capturedAt: '2026-04-26T00:00:00.000Z',
+          metadata: {},
+        }),
+    };
+    const sources: SourceItem[] = [
+      {
+        sourceId: 'src_parent',
+        sourceKind: 'bookmarks',
+        url: 'https://example.com/article',
+        entryId: 'tweet-parent',
+      },
+    ];
+    const queue = createSqliteQueue(queuePath);
+    queue.upsertBookmark({
+      entryId: 'tweet-parent',
+      tweetId: '1',
+      source: 'bookmarks',
+      sourceUrl: 'https://example.com/article',
+      author: 'u',
+      text: 'about repos',
+      capturedAt: '2026-01-01T00:00:00.000Z',
+    });
+    queue.close();
+
+    const deps = makeDeps(
+      { llm: makeStubLlm(repoExtraction), ingestors: [articleIngestor] },
+      sources,
+    );
+    await runSync(deps);
+
+    const derived = deps.queue.listBookmarks({ sourceKind: 'derived' });
+    expect(derived.map((d) => d.sourceUrl)).toEqual(['https://github.com/owner/some-project']);
+    expect(derived[0]?.parentEntryId).toBe('tweet-parent');
+    deps.queue.close();
+  });
+
+  it('merges entity stub frontmatter (sources / aliases) across multiple sources mentioning the same entity', async () => {
+    // Two sources both mention the same Tool. The second sync's
+    // entity write should preserve the first source's id in
+    // frontmatter.sources, and union the aliases.
+    const extractionA = JSON.stringify({
+      entities: [{ id: 'tool_x', type: 'Tool', name: 'Vercel', aliases: ['vercel.com'] }],
+      claims: [],
+      relationships: [],
+    });
+    const extractionB = JSON.stringify({
+      entities: [
+        { id: 'tool_x', type: 'Tool', name: 'Vercel', aliases: ['https://vercel.com'] },
+      ],
+      claims: [],
+      relationships: [],
+    });
+    const articleIngestor: Ingestor = {
+      kind: 'article',
+      matches: () => true,
+      ingest: (url) =>
+        Promise.resolve({
+          url,
+          kind: 'article',
+          title: 'A Title',
+          body: 'A body that easily clears any minimum length requirements throughout.',
+          byline: null,
+          capturedAt: '2026-04-26T00:00:00.000Z',
+          metadata: {},
+        }),
+    };
+
+    // First sync — fresh entity stub.
+    const sourcesA: SourceItem[] = [
+      { sourceId: 'src_a', sourceKind: 'bookmarks', url: 'https://example.com/a' },
+    ];
+    const depsA = makeDeps(
+      { llm: makeStubLlm(extractionA), ingestors: [articleIngestor] },
+      sourcesA,
+    );
+    await runSync(depsA);
+    depsA.queue.close();
+
+    // Second sync — same entity, different source. The vault write
+    // should READ the first stub and merge sources/aliases.
+    const sourcesB: SourceItem[] = [
+      { sourceId: 'src_b', sourceKind: 'bookmarks', url: 'https://example.com/b' },
+    ];
+    const depsB = makeDeps(
+      { llm: makeStubLlm(extractionB), ingestors: [articleIngestor] },
+      sourcesB,
+    );
+    await runSync(depsB);
+    depsB.queue.close();
+
+    // Read the entity stub from disk and verify the merged state.
+    // The resolved id is the hash from entityId(type, name); list
+    // the dir and grab whichever stub exists.
+    const toolDir = path.join(vaultDir, 'tool');
+    const files = await fs.readdir(toolDir);
+    expect(files.length).toBe(1);
+    const text = await fs.readFile(path.join(toolDir, files[0] ?? ''), 'utf8');
+    const fmRaw = text.split('\n').slice(0, 1)[0] ?? '';
+    const fm = JSON.parse(fmRaw) as { sources: string[]; aliases: string[] };
+    expect(fm.sources.sort()).toEqual(['src_a', 'src_b']);
+    expect(fm.aliases.sort()).toEqual(['https://vercel.com', 'vercel.com']);
   });
 
   it('drops self-referential Article entity (same name as the source title)', async () => {

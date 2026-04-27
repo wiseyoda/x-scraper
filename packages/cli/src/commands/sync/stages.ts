@@ -7,7 +7,7 @@
 
 import type { Frontmatter } from '@x-scraper/core';
 import { canonicalizeUrl, contentHash, entityId } from '@x-scraper/core';
-import { extract } from '@x-scraper/extractor';
+import { extract, EXTRACTION_PROMPT_VERSION } from '@x-scraper/extractor';
 import { ingest, X_TWEET_URL_RE } from '@x-scraper/ingestor';
 import type { Job, Stage } from '@x-scraper/queue';
 import type { ExistingClaim } from '@x-scraper/reconciler';
@@ -20,7 +20,11 @@ import {
 
 import type { JobContext, SourceItem, SyncDeps, SyncOptions } from './types.js';
 
-const PROMPT_VERSION_DEFAULT = { extraction: 1, reconciliation: 1, embedding: 1 };
+const PROMPT_VERSION_DEFAULT = {
+  extraction: EXTRACTION_PROMPT_VERSION,
+  reconciliation: 1,
+  embedding: 1,
+};
 
 const TWEET_HOST_RE = /^https?:\/\/(?:www\.|mobile\.)?(?:x|twitter)\.com\//i;
 // X Articles (long-form posts) live at x.com/<user>/article/<id> or
@@ -265,6 +269,82 @@ export const extractFactsStage = async (deps: SyncDeps, ctx: JobContext): Promis
         type: r.type,
       })),
   };
+
+  // Auto-ingest URLs that the model included in entity aliases. When
+  // an Article/Repo/Video/PDF entity has a canonical URL alias (a
+  // github.com repo, a youtube video, a .pdf, etc.), enqueue a derived
+  // ledger row for it. The next sync run picks it up and runs the
+  // matching ingestor, populating that entity with rich content
+  // (README + description for repos, captions for YouTube, etc.) on
+  // a follow-up pass instead of leaving the stub forever empty.
+  if (ctx.source.entryId !== undefined) {
+    enqueueEntityLinkDerivedRows(deps, ctx);
+  }
+};
+
+/**
+ * Match a URL anywhere inside an alias string. We don't require the
+ * alias to BE a URL — sometimes the model returns "github.com/owner/repo"
+ * or wraps the URL in punctuation. The lazy regex captures the URL and
+ * we canonicalize downstream.
+ */
+const ALIAS_URL_RE = /\bhttps?:\/\/[^\s)\]]+/i;
+
+const enqueueEntityLinkDerivedRows = (deps: SyncDeps, ctx: JobContext): void => {
+  if (ctx.extraction === null) return;
+  if (ctx.source.entryId === undefined) return;
+  const parentSourceKind = ctx.source.sourceKind;
+  const ledgerSource: 'bookmarks' | 'likes' | 'posts' =
+    parentSourceKind === 'likes' || parentSourceKind === 'posts' ? parentSourceKind : 'bookmarks';
+  const seen = new Set<string>();
+  let derived = 0;
+  for (const entity of ctx.extraction.entities) {
+    // Limit auto-ingest to the linked-artifact entity types — the
+    // ones whose ingest produces meaningful content. Skip Person /
+    // Tool / Concept where a URL is informational, not a fetch
+    // target.
+    if (
+      entity.type !== 'Article' &&
+      entity.type !== 'Repo' &&
+      entity.type !== 'Video' &&
+      entity.type !== 'PDF'
+    ) {
+      continue;
+    }
+    for (const alias of entity.aliases) {
+      const match = ALIAS_URL_RE.exec(alias);
+      if (match === null) continue;
+      const trimmed = match[0].replace(/[.,;!?)\]]+$/, '');
+      let canonical: string;
+      try {
+        canonical = canonicalizeUrl(trimmed);
+      } catch {
+        continue;
+      }
+      if (seen.has(canonical)) continue;
+      seen.add(canonical);
+      if (canonical === ctx.source.url) continue;
+      if (X_TWEET_URL_RE.test(canonical)) continue;
+      if (deps.queue.findBookmarkBySourceUrl(canonical) !== null) continue;
+      const result = deps.queue.upsertBookmark({
+        entryId: `derived_${entityId('Source', canonical)}`,
+        tweetId: 'derived',
+        source: ledgerSource,
+        sourceUrl: canonical,
+        text: '',
+        capturedAt: new Date().toISOString(),
+        parentEntryId: ctx.source.entryId,
+        sourceKind: 'derived',
+      });
+      if (result === 'inserted') derived += 1;
+    }
+  }
+  if (derived > 0) {
+    deps.logger.info('sync.extract_facts.entity_links_enqueued', {
+      sourceId: ctx.source.sourceId,
+      derived,
+    });
+  }
 };
 
 /**
@@ -343,6 +423,82 @@ export const reconcileStage = async (deps: SyncDeps, ctx: JobContext): Promise<v
   }
 };
 
+/**
+ * Write an entity stub, merging sources/aliases/created_at with any
+ * existing stub at the same id. The frontmatter `sources` list and
+ * `aliases` list grow monotonically across mentions; created_at is
+ * preserved from the first mention. The body lists the merged
+ * aliases, calls out URL aliases (so Obsidian renders them as links),
+ * and lists the sources as wikilinks for click-through navigation.
+ */
+type MergedEntityType = 'Person' | 'Tool' | 'Concept' | 'Repo' | 'Article' | 'Tweet' | 'Video' | 'PDF';
+
+const writeMergedEntity = async (
+  vault: SyncDeps['vault'],
+  entity: { id: string; type: MergedEntityType; name: string; aliases: string[] },
+  currentSourceId: string,
+  now: string,
+): Promise<string> => {
+  let existingSources: string[] = [];
+  let existingAliases: string[] = [];
+  let createdAt = now;
+  let existingName: string | undefined;
+  try {
+    const existing = await vault.read(entity.id, entity.type);
+    const fm = existing.frontmatter as {
+      sources?: string[];
+      aliases?: string[];
+      created_at?: string;
+      name?: string;
+    };
+    existingSources = Array.isArray(fm.sources) ? fm.sources : [];
+    existingAliases = Array.isArray(fm.aliases) ? fm.aliases : [];
+    if (typeof fm.created_at === 'string' && fm.created_at.length > 0) {
+      createdAt = fm.created_at;
+    }
+    existingName = typeof fm.name === 'string' ? fm.name : undefined;
+  } catch {
+    // First write — no merge needed.
+  }
+  const mergedSources = Array.from(new Set([...existingSources, currentSourceId]));
+  const mergedAliases = Array.from(new Set([...existingAliases, ...entity.aliases]));
+  const fm: Frontmatter = {
+    id: entity.id,
+    type: entity.type,
+    created_at: createdAt,
+    updated_at: now,
+    prompt_version: PROMPT_VERSION_DEFAULT,
+    sources: mergedSources,
+    aliases: mergedAliases,
+    tags: [],
+    topics: [],
+    // Prefer the existing stored name to keep the canonical surface
+    // form stable across re-mentions; fall back to the incoming name
+    // for the first write.
+    name: existingName ?? entity.name,
+  };
+  return await vault.write({ frontmatter: fm, body: buildEntityBody(mergedAliases, mergedSources) });
+};
+
+const buildEntityBody = (aliases: string[], sources: string[]): string => {
+  const lines: string[] = [];
+  if (aliases.length > 0) {
+    lines.push(`Aliases: ${aliases.join(', ')}`);
+    const urlAliases = aliases.filter((a) => /^https?:\/\//i.test(a));
+    if (urlAliases.length > 0) {
+      lines.push('');
+      lines.push('## URLs');
+      for (const u of urlAliases) lines.push(`- ${u}`);
+    }
+  }
+  if (sources.length > 0) {
+    lines.push('');
+    lines.push('## Mentioned in');
+    for (const s of sources) lines.push(`- [[${s}]]`);
+  }
+  return lines.length === 0 ? '' : `${lines.join('\n')}\n`;
+};
+
 export const writeVaultStage = async (deps: SyncDeps, ctx: JobContext): Promise<void> => {
   if (ctx.ingested === null) {
     throw new Error('write_vault: missing ingested body');
@@ -377,27 +533,24 @@ export const writeVaultStage = async (deps: SyncDeps, ctx: JobContext): Promise<
 
   // Write each new/merged entity as an Entity.md (using the resolved
   // graph id as the file id so future writes to the same entity update in
-  // place rather than creating duplicates).
+  // place rather than creating duplicates). For entities resolved to an
+  // existing stub, READ first and merge sources/aliases/created_at so
+  // a later mention in source B doesn't clobber the source A backlink.
   for (const entity of ctx.extraction.entities) {
     const resolution = ctx.entityResolutions.get(entity.id);
     if (resolution === undefined) continue;
     if (entity.type === 'Source' || entity.type === 'Claim' || entity.type === 'Topic') continue;
-    const entityFm: Frontmatter = {
-      id: resolution.graphId,
-      type: entity.type,
-      created_at: now,
-      updated_at: now,
-      prompt_version: PROMPT_VERSION_DEFAULT,
-      sources: [ctx.source.sourceId],
-      aliases: entity.aliases,
-      tags: [],
-      topics: [],
-      name: entity.name,
-    };
-    const entityPath = await deps.vault.write({
-      frontmatter: entityFm,
-      body: entity.aliases.length > 0 ? `Aliases: ${entity.aliases.join(', ')}\n` : '',
-    });
+    const entityPath = await writeMergedEntity(
+      deps.vault,
+      {
+        id: resolution.graphId,
+        type: entity.type,
+        name: entity.name,
+        aliases: entity.aliases,
+      },
+      ctx.source.sourceId,
+      now,
+    );
     ctx.vaultWrites.push(entityPath);
   }
 
