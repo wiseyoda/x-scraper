@@ -27,6 +27,6 @@
       "@x-scraper/synthesizer": ["./packages/synthesizer/src/index.ts"]
     }
   },
-  "include": ["packages/**/*.ts", "spikes/**/*.ts", "apps/**/*.ts", "*.config.ts"],
-  "exclude": ["node_modules", "**/dist", "**/build"]
+  "include": ["packages/**/*.ts", "spikes/**/*.ts", "*.config.ts"],
+  "exclude": ["node_modules", "**/dist", "**/build", "apps", "**/.next"]
 }

@@ -1,0 +1,30 @@
+{
+  "name": "@x-scraper/web-ui",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Local-first review surface for x-scraper. Phase 0: Idea draft review.",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --port 3737",
+    "build": "next build",
+    "start": "next start --port 3737",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@x-scraper/core": "workspace:*",
+    "@x-scraper/synthesizer": "workspace:*",
+    "@x-scraper/vault": "workspace:*",
+    "next": "^15.1.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.6.0"
+  }
+}

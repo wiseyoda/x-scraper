@@ -6,7 +6,18 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/build/**', '**/coverage/**', '**/node_modules/**'],
+    ignores: [
+      '**/dist/**',
+      '**/build/**',
+      '**/coverage/**',
+      '**/node_modules/**',
+      // The web-ui app has its own Next.js + ESLint setup; lint it from
+      // its own package context (`pnpm --filter @x-scraper/web-ui build`
+      // or `next lint`) rather than dragging Next-flavored sources into
+      // the workspace-wide strict-type-checked profile.
+      'apps/web-ui/**',
+      '**/.next/**',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
