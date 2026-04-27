@@ -14,16 +14,9 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
-import {
-  type CommunityResult,
-  detectCommunities,
-} from '@x-scraper/community';
-import { entityId,type Frontmatter } from '@x-scraper/core';
-import {
-  type ConceptSubgraph,
-  createNeo4jGraph,
-  type GraphStore,
-} from '@x-scraper/graph';
+import { type CommunityResult, detectCommunities } from '@x-scraper/community';
+import { entityId, type Frontmatter } from '@x-scraper/core';
+import { type ConceptSubgraph, createNeo4jGraph, type GraphStore } from '@x-scraper/graph';
 import { createClaudeProvider, type LlmProvider } from '@x-scraper/llm';
 import type { Logger } from '@x-scraper/observability';
 import { createLogger, jsonLineSink } from '@x-scraper/observability';
@@ -137,7 +130,10 @@ const synthesizeOne = async (
     ],
     maxTokens: 256,
   });
-  const stripped = reply.text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+  const stripped = reply.text
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/```\s*$/i, '')
+    .trim();
   // Defensive: the LLM may still leak prose. Fall back to deterministic
   // title from the representative name if parse fails.
   try {
@@ -173,7 +169,9 @@ const synthesizeOne = async (
 const buildSynthesizer = (
   llm: LlmProvider | null,
   nameById: Map<string, string>,
-): ((community: CommunityResult) => Promise<{ title: string; summary: string; costUsd: number }>) => {
+): ((
+  community: CommunityResult,
+) => Promise<{ title: string; summary: string; costUsd: number }>) => {
   if (llm === null) {
     return (community): Promise<{ title: string; summary: string; costUsd: number }> => {
       const repName = nameById.get(community.representativeId) ?? community.representativeId;

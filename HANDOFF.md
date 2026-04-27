@@ -19,6 +19,7 @@ cd49741  feat(bookmarks): durable backlog with xs bookmarks pull + sync
 301 vitest tests across 45 files (3 perf-bench skipped without RUN_BENCH=1). lint clean, typecheck clean. `pnpm build` clean.
 
 **Live data state at session end:**
+
 - `bookmark_ledger`: 210 rows synced (200 bookmarks + 10 likes), 0 failed, 0 new
 - vault: 200 Source.md, 1500+ Claim.md, 800+ Entity.md, 6 Topic.md
 - Neo4j: 200 Source + 2400+ Claim + ~80 Concept nodes; 6500+ edges across 14 types; HNSW `claim_embed_idx` @ 1536 dims
@@ -54,7 +55,7 @@ Pat reviewed the populated graph (top entities: Claude Code 39, Claude 16, OpenC
 
 ### Tier 1 — fixes the data is begging for
 
-1. **Entity normalization is broken.** Graph has both `AI Agents` (6) AND `AI Agent` (4) as separate Concepts; `MCP` (5) AND `Model Context Protocol` (4) split; `Anthropic` exists as both Tool and Person. Reconciler's vector-similarity ER is missing trivial alias collisions. **Fix:** pre-normalize entity names before resolution (lowercase, singularize via Inflector, strip articles); add `aliases[]` lookup *before* vector search. Estimate: collapses 20–30% of duplicate Concept/Person nodes.
+1. **Entity normalization is broken.** Graph has both `AI Agents` (6) AND `AI Agent` (4) as separate Concepts; `MCP` (5) AND `Model Context Protocol` (4) split; `Anthropic` exists as both Tool and Person. Reconciler's vector-similarity ER is missing trivial alias collisions. **Fix:** pre-normalize entity names before resolution (lowercase, singularize via Inflector, strip articles); add `aliases[]` lookup _before_ vector search. Estimate: collapses 20–30% of duplicate Concept/Person nodes.
 
 2. **`null` predicate count is 1002.** Cypher `MATCH (c:Claim) RETURN c.predicate, count(*)` shows 1002 claims with null predicate (~40% of the corpus). Either the upsert isn't writing `predicate` to Neo4j, or the extractor emits empty strings stored as null. Invalidates any predicate-based query. **Fix:** investigate first (is it a data-write bug or a Cypher-projection bug?). Most likely 30 minutes to a fix once root cause is found.
 
@@ -66,7 +67,7 @@ Pat reviewed the populated graph (top entities: Claude Code 39, Claude 16, OpenC
 
 5. **Topic detect is starved.** 82 Concepts but only 52 RELATED_TO edges. Communities are tiny because there aren't enough edges. Root cause: the extractor emits relationships between entities but rarely between Concepts. **Fix:** post-extraction step that infers Concept-Concept edges from co-occurrence — every pair of Concepts mentioned in the same Source gets a weak `RELATED_TO` (confidence proportional to inverse Source frequency). Estimate: 5-10x edge density, much richer topics.
 
-6. **Concept embeddings, not just Claim embeddings.** Reconciler currently uses the *source* embedding as a proxy for every entity (because we only embed Claim text). That's why entity dedup is hit-or-miss. **Fix:** add a per-entity embed stage (or batch-embed all unique entity names per run); feed those to `resolveEntity`. The HNSW index already supports it via `ENTITY_VECTOR_INDEX_NAME` from constants.ts (slice 8 deferred this).
+6. **Concept embeddings, not just Claim embeddings.** Reconciler currently uses the _source_ embedding as a proxy for every entity (because we only embed Claim text). That's why entity dedup is hit-or-miss. **Fix:** add a per-entity embed stage (or batch-embed all unique entity names per run); feed those to `resolveEntity`. The HNSW index already supports it via `ENTITY_VECTOR_INDEX_NAME` from constants.ts (slice 8 deferred this).
 
 ### Tier 3 — usability + introspection
 

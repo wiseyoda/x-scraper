@@ -146,16 +146,12 @@ const runMain = async (): Promise<number> => {
     case 'bookmarks': {
       const sub = args.positionals[0];
       if (sub !== 'pull' && sub !== 'sync') {
-        console.error(
-          `xs bookmarks: unknown subcommand "${sub ?? ''}" — use 'pull' or 'sync'`,
-        );
+        console.error(`xs bookmarks: unknown subcommand "${sub ?? ''}" — use 'pull' or 'sync'`);
         return EXIT_USAGE;
       }
       const sourceArg = args.options.get('source');
       if (sourceArg !== undefined && !isBookmarkSource(sourceArg)) {
-        console.error(
-          `xs bookmarks: --source must be bookmarks|likes|posts (got ${sourceArg})`,
-        );
+        console.error(`xs bookmarks: --source must be bookmarks|likes|posts (got ${sourceArg})`);
         return EXIT_USAGE;
       }
       if (sub === 'pull') {
@@ -239,9 +235,7 @@ const runMain = async (): Promise<number> => {
       }
       const modeArg = args.options.get('mode') ?? 'bookmarks-sync';
       if (modeArg !== 'bookmarks-sync' && modeArg !== 'sync') {
-        console.error(
-          `xs schedule: --mode must be bookmarks-sync|sync (got ${modeArg})`,
-        );
+        console.error(`xs schedule: --mode must be bookmarks-sync|sync (got ${modeArg})`);
         return EXIT_USAGE;
       }
       const mode: ScheduleMode = modeArg;

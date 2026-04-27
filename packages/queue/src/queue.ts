@@ -737,9 +737,7 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
     return fresh;
   };
 
-  const bookmarkStats = (
-    filter: { source?: BookmarkSource } = {},
-  ): BookmarkLedgerStats => {
+  const bookmarkStats = (filter: { source?: BookmarkSource } = {}): BookmarkLedgerStats => {
     const out: BookmarkLedgerStats = { total: 0, new: 0, synced: 0, failed: 0, skipped: 0 };
     const rows = (
       filter.source !== undefined

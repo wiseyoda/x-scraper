@@ -47,9 +47,7 @@ export const fetchLinksStage = async (deps: SyncDeps, ctx: JobContext): Promise<
   const matches = ctx.source.body.match(URL_RE) ?? [];
   // Drop the source URL itself (always present in tweet text as a t.co
   // self-reference for media tweets) and dedupe.
-  const unique = Array.from(
-    new Set(matches.filter((u) => !u.includes(ctx.source.url))),
-  );
+  const unique = Array.from(new Set(matches.filter((u) => !u.includes(ctx.source.url))));
   if (unique.length > 0) {
     deps.logger.info('sync.fetch_links.discovered', {
       sourceId: ctx.source.sourceId,

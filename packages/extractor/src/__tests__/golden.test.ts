@@ -17,7 +17,7 @@
  * once the live output is reviewed.
  */
 
-import { readdirSync,readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -80,7 +80,10 @@ const buildStubLlm = (expected: Expected): LlmProvider => ({
     }));
     const claims = Array.from({ length: Math.max(1, expected.minClaims) }).map((_, i) => ({
       id: `claim_${String(i)}`,
-      subject: expected.expectedSubjectsLowerOrAliases[i % expected.expectedSubjectsLowerOrAliases.length] ?? 'subject',
+      subject:
+        expected.expectedSubjectsLowerOrAliases[
+          i % expected.expectedSubjectsLowerOrAliases.length
+        ] ?? 'subject',
       predicate: 'is_known_for',
       object: 'something',
       text: `Stub claim ${String(i)}.`,

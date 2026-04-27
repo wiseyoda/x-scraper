@@ -94,10 +94,9 @@ export const runScheduleInstall = async (
   // Both forms accept --reset-quarantine through the file path on the
   // user's gui domain — bootstrapping the same label twice errors, so
   // we proactively bootout first if present.
-  await execFileAsync('launchctl', [
-    'bootout',
-    `gui/${String(uid)}/${label}`,
-  ]).catch(() => undefined);
+  await execFileAsync('launchctl', ['bootout', `gui/${String(uid)}/${label}`]).catch(
+    () => undefined,
+  );
   await execFileAsync('launchctl', ['bootstrap', `gui/${String(uid)}`, plistPath]);
 
   return { label, plistPath, loaded: true, intervalSeconds, mode };
@@ -121,10 +120,9 @@ export const runScheduleUninstall = async (
   const label = options.label ?? `com.x-scraper.${mode}`;
   const plistPath = defaultPlistPath(label);
   const uid = process.getuid?.() ?? 0;
-  await execFileAsync('launchctl', [
-    'bootout',
-    `gui/${String(uid)}/${label}`,
-  ]).catch(() => undefined);
+  await execFileAsync('launchctl', ['bootout', `gui/${String(uid)}/${label}`]).catch(
+    () => undefined,
+  );
   let removed = false;
   if (fs.existsSync(plistPath)) {
     fs.unlinkSync(plistPath);

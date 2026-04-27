@@ -32,9 +32,7 @@ describe('extractTweetPayload', () => {
                 full_text: 'hello world https://t.co/abc',
                 created_at: 'Sat Apr 26 14:30:00 +0000 2026',
                 entities: {
-                  urls: [
-                    { url: 'https://t.co/abc', expanded_url: 'https://example.com/article' },
-                  ],
+                  urls: [{ url: 'https://t.co/abc', expanded_url: 'https://example.com/article' }],
                 },
               },
             },

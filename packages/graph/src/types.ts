@@ -1,7 +1,5 @@
 import type { EdgeType, EntityType } from '@x-scraper/core';
 
-
-
 export interface GraphNode {
   id: string;
   type: EntityType;

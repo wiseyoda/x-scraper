@@ -231,8 +231,12 @@ export const runBookmarksSync = async (
   const logger = options.logger ?? stdoutLogger();
   const queue = createSqliteQueue(config.queuePath);
 
-  const filter: { status: 'new'; order: 'oldest' | 'newest'; limit?: number; source?: BookmarkSource } =
-    { status: 'new', order };
+  const filter: {
+    status: 'new';
+    order: 'oldest' | 'newest';
+    limit?: number;
+    source?: BookmarkSource;
+  } = { status: 'new', order };
   if (options.limit !== undefined) filter.limit = options.limit;
   if (options.source !== undefined) filter.source = options.source;
   const candidates = queue.listBookmarks(filter);
@@ -371,7 +375,12 @@ const runOnePerLedgerItem = async (
       jobId: null,
       jobStatus: null,
       status: 'failed',
-      error: err instanceof ScraperError ? err.message : err instanceof Error ? err.message : String(err),
+      error:
+        err instanceof ScraperError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : String(err),
       durationMs: Date.now() - start,
       costUsd: 0,
     };
@@ -379,4 +388,3 @@ const runOnePerLedgerItem = async (
     await wired.cleanup();
   }
 };
-

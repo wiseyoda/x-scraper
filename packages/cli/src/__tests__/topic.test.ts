@@ -129,7 +129,9 @@ describe('runTopicDetect', () => {
       }
     }
     const graph = fakeGraph(nodes, edges);
-    const llm = stubLlm(JSON.stringify({ title: 'Programming Languages', summary: 'A cluster about programming.' }));
+    const llm = stubLlm(
+      JSON.stringify({ title: 'Programming Languages', summary: 'A cluster about programming.' }),
+    );
     const result = await runTopicDetect(config, {
       graph,
       llm,
