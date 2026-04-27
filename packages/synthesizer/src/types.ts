@@ -20,6 +20,23 @@ export interface ClaimRef {
 }
 
 /**
+ * Entity loaded from the vault for entity-anchored clustering.
+ * Used by clusterByEntity to anchor claim clusters on entities that
+ * span multiple sources (the actual cross-source signal lives here,
+ * not in claim subjects which the LLM tends to anchor per-source).
+ */
+export interface EntityRef {
+  id: string;
+  type: string;
+  /** Display name (e.g. "Claude Code", "Anthropic"). */
+  name: string;
+  /** Alternative surface forms. */
+  aliases: string[];
+  /** Source ids that mention this entity. */
+  sources: string[];
+}
+
+/**
  * A candidate cluster of claims that share an anchor (subject right
  * now; later: shared concept entity, semantic neighborhood, etc).
  *
@@ -34,6 +51,14 @@ export interface ClaimCluster {
   claims: ClaimRef[];
   /** Distinct source ids that contributed claims. */
   sourceIds: string[];
+  /**
+   * Entity id when the cluster was anchored on an entity rather than a
+   * raw subject string. Lets persist.ts wire SYNTHESIZED_FROM edges
+   * back to the entity for graph navigation.
+   */
+  entityId?: string;
+  /** Display name when the anchor is normalized (lowercased, trimmed). */
+  anchorDisplay?: string;
 }
 
 /**

@@ -3,16 +3,27 @@
  * LLM → persist. The CLI command thin-wraps this.
  */
 
-import type { ClaimFrontmatter } from '@x-scraper/core';
+import type { ClaimFrontmatter, EntityFrontmatter, EntityType } from '@x-scraper/core';
 import type { GraphStore } from '@x-scraper/graph';
 import type { LlmProvider } from '@x-scraper/llm';
 import type { Logger } from '@x-scraper/observability';
 import type { VaultStore } from '@x-scraper/vault';
 
-import { clusterClaims } from './cluster.js';
+import { clusterByEntity } from './cluster.js';
 import { ideaIdForCluster, persistIdea } from './persist.js';
 import { synthesizeCluster, SynthesizerError } from './synthesize.js';
-import type { ClaimRef, SynthesisResult } from './types.js';
+import type { ClaimRef, EntityRef, SynthesisResult } from './types.js';
+
+const ENTITY_TYPES_FOR_CLUSTERING: EntityType[] = [
+  'Person',
+  'Tool',
+  'Concept',
+  'Repo',
+  'Article',
+  'Tweet',
+  'Video',
+  'PDF',
+];
 
 export interface SynthesizeAllInput {
   vault: VaultStore;
@@ -26,6 +37,41 @@ export interface SynthesizeAllInput {
   /** Override clock for tests. */
   now?: () => Date;
 }
+
+/**
+ * Read every entity-shaped vault record (Person/Tool/Concept/Repo/etc.)
+ * and project to EntityRef. Skips Source/Claim/Topic/Idea — those are
+ * not anchors for clustering.
+ */
+export const loadEntitiesFromVault = async (vault: VaultStore): Promise<EntityRef[]> => {
+  const out: EntityRef[] = [];
+  for (const type of ENTITY_TYPES_FOR_CLUSTERING) {
+    let list;
+    try {
+      list = await vault.list(type);
+    } catch {
+      continue;
+    }
+    for (const entry of list) {
+      let record;
+      try {
+        record = await vault.read(entry.id, type);
+      } catch {
+        continue;
+      }
+      if (record.frontmatter.type !== type) continue;
+      const fm = record.frontmatter as EntityFrontmatter;
+      out.push({
+        id: fm.id,
+        type: fm.type,
+        name: fm.name,
+        aliases: fm.aliases,
+        sources: fm.sources,
+      });
+    }
+  }
+  return out;
+};
 
 export const loadClaimsFromVault = async (vault: VaultStore): Promise<ClaimRef[]> => {
   const list = await vault.list('Claim');
@@ -57,10 +103,16 @@ export const loadClaimsFromVault = async (vault: VaultStore): Promise<ClaimRef[]
 
 export const synthesizeAll = async (input: SynthesizeAllInput): Promise<SynthesisResult> => {
   const log = input.logger;
-  const allClaims = await loadClaimsFromVault(input.vault);
-  log.info('synthesize.claims_loaded', { count: allClaims.length });
+  const [allClaims, allEntities] = await Promise.all([
+    loadClaimsFromVault(input.vault),
+    loadEntitiesFromVault(input.vault),
+  ]);
+  log.info('synthesize.loaded', {
+    claims: allClaims.length,
+    entities: allEntities.length,
+  });
 
-  const { admitted, belowThreshold } = clusterClaims(allClaims);
+  const { admitted, belowThreshold } = clusterByEntity(allClaims, allEntities);
   log.info('synthesize.clusters_admitted', {
     admitted: admitted.length,
     belowThreshold,

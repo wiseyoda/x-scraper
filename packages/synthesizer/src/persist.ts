@@ -20,9 +20,19 @@ const PROMPT_VERSION_DEFAULT = {
   embedding: 0,
 };
 
+/**
+ * Idea id derivation.
+ *
+ * Stable on (anchor, prompt-version) — adding new sources / claims to
+ * the cluster updates the existing Idea rather than minting a new one.
+ * This way, evidence growing over time strengthens an Idea instead of
+ * spawning a parallel draft for every new source mention.
+ *
+ * The promptVersion bump is the explicit way to fork: bumping it
+ * produces a new id and the previous draft stays on disk for audit.
+ */
 export const ideaIdForCluster = (cluster: ClaimCluster, promptVersion: number): string => {
-  const sortedSources = [...cluster.sourceIds].sort();
-  const key = `${cluster.anchor}|v${promptVersion.toString()}|${sortedSources.join(',')}`;
+  const key = `${cluster.anchor}|v${promptVersion.toString()}`;
   return entityId('Idea', key);
 };
 
@@ -98,7 +108,9 @@ export const persistIdea = async (
     topics: [],
     tier: 1,
     status,
-    subject: input.cluster.anchor,
+    // Prefer the entity's display form (proper case) when the cluster
+    // was entity-anchored; fall back to the normalized anchor.
+    subject: input.cluster.anchorDisplay ?? input.cluster.anchor,
     synthesizer_confidence: input.draft.confidence,
     synthesizer_version: SYNTHESIS_PROMPT_VERSION,
     synthesized_at: now,
@@ -115,7 +127,7 @@ export const persistIdea = async (
       type: 'Idea',
       props: {
         title: input.draft.title,
-        subject: input.cluster.anchor,
+        subject: input.cluster.anchorDisplay ?? input.cluster.anchor,
         confidence: input.draft.confidence,
         status,
         synthesizer_version: SYNTHESIS_PROMPT_VERSION,
@@ -130,6 +142,19 @@ export const persistIdea = async (
         from: ideaId,
         to: c.id,
         type: 'SYNTHESIZED_FROM',
+        validAt: now,
+        confidence: input.draft.confidence,
+      });
+    }
+    // PROMOTES edge: when the cluster was anchored on an entity, link
+    // entity → idea so navigating from the entity's page surfaces the
+    // ideas it underwrites. The reverse direction matches the semantic
+    // ("Anthropic" promotes the idea about Anthropic).
+    if (input.cluster.entityId !== undefined) {
+      await graph.upsertEdge({
+        from: input.cluster.entityId,
+        to: ideaId,
+        type: 'PROMOTES',
         validAt: now,
         confidence: input.draft.confidence,
       });
