@@ -66,6 +66,35 @@ const checkVault = async (config: CliConfig): Promise<Check> => {
   };
 };
 
+/**
+ * iCloud Drive's "Desktop & Documents" sync redirects ~/Documents to
+ * ~/Library/Mobile Documents/com~apple~CloudDocs/Documents. iCloud's
+ * conflict resolver renames concurrently-touched dirs to "<name> 2",
+ * which we have observed creating spurious sources/topics 2/ siblings
+ * during the parallel mkdir + git ops in `xs sync`. Warn so the user
+ * can either set $XSCRAPER_VAULT to a non-synced path or migrate.
+ */
+const checkVaultNotInICloud = async (config: CliConfig): Promise<Check> => {
+  try {
+    const real = await fs.realpath(config.vaultDir);
+    if (real.includes(path.join('Mobile Documents', 'com~apple~CloudDocs'))) {
+      return {
+        name: 'vault-icloud',
+        status: 'WARN',
+        detail:
+          `${config.vaultDir} resolves into iCloud Drive (${real}); ` +
+          `iCloud rename-on-conflict can corrupt the vault layout. ` +
+          `Set XSCRAPER_VAULT to a non-synced path (e.g. ~/x-scraper-vault).`,
+      };
+    }
+    return { name: 'vault-icloud', status: 'PASS', detail: 'vault is not iCloud-synced' };
+  } catch {
+    // Vault dir doesn't exist yet — checkVault will WARN about that;
+    // skip the iCloud check for now.
+    return { name: 'vault-icloud', status: 'PASS', detail: 'vault not yet initialized' };
+  }
+};
+
 const checkQueue = async (config: CliConfig): Promise<Check> => {
   if (await fileExists(config.queuePath)) {
     return { name: 'queue', status: 'PASS', detail: `${config.queuePath} present` };
@@ -123,6 +152,7 @@ const checkEnvFile = async (): Promise<Check[]> => {
 export const runDoctor = async (config: CliConfig): Promise<Check[]> => {
   const checks: Check[] = [];
   checks.push(await checkVault(config));
+  checks.push(await checkVaultNotInICloud(config));
   checks.push(await checkQueue(config));
   checks.push(...(await checkEnvFile()));
   return checks;

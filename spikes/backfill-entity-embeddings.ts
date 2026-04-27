@@ -82,16 +82,24 @@ const main = async (): Promise<void> => {
   let totalSkipped = 0;
   try {
     for (const type of ENTITY_TARGETS) {
-      let offset = 0;
-      // Pages of entities of this type that lack an embedding.
+      // No SKIP: each iteration's WHERE filter (n.embedding IS NULL)
+      // shrinks the candidate set as we SET n.embedding on the page,
+      // so a page-by-page scan with a moving offset would skip about
+      // half the corpus. Always read the next BATCH_SIZE rows that
+      // still match the filter; loop terminates when the page is empty.
+      // The blank-name skip case advances by selecting different rows
+      // each time only because we set n.embedding to a sentinel — but
+      // we don't. Track a stable last-id cursor so blank-name rows
+      // don't trap the loop.
+      let lastId = '';
       while (true as boolean) {
         const page = await session.run(
           `MATCH (n:${type})
-           WHERE n.embedding IS NULL
+           WHERE n.embedding IS NULL AND n.id > $lastId
            RETURN n.id AS id, coalesce(n.name, '') AS name
            ORDER BY n.id ASC
-           SKIP $offset LIMIT $batch`,
-          { offset: neo4j.int(offset), batch: neo4j.int(BATCH_SIZE) },
+           LIMIT $batch`,
+          { lastId, batch: neo4j.int(BATCH_SIZE) },
         );
         if (page.records.length === 0) break;
 
@@ -101,9 +109,11 @@ const main = async (): Promise<void> => {
         }));
         const embeddable = items.filter((i) => i.name.length > 0);
         const blanks = items.length - embeddable.length;
+        // Advance the cursor past every row we read this page so blank
+        // names don't lock the loop on the same id forever.
+        lastId = items[items.length - 1]?.id ?? lastId;
         if (embeddable.length === 0) {
           totalSkipped += blanks;
-          offset += page.records.length;
           continue;
         }
 
@@ -134,7 +144,6 @@ const main = async (): Promise<void> => {
           throw err;
         }
         totalSkipped += blanks;
-        offset += page.records.length;
         console.log(
           `  ${type}: ${String(totalUpdated)} embedded, ${String(totalSkipped)} skipped (no name)`,
         );

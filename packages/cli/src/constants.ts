@@ -5,7 +5,13 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-export const DEFAULT_VAULT_DIR = path.join(os.homedir(), 'Documents', 'x-scraper-vault');
+// ~/Documents on macOS is typically symlinked to iCloud Drive when
+// Desktop & Documents Folders sync is enabled. iCloud's conflict
+// resolution renames concurrently-touched dirs to "<name> 2", which
+// corrupts the vault's directory layout (e.g. spurious "topics 2/").
+// Default to a non-iCloud-synced path under $HOME and let users
+// override via $XSCRAPER_VAULT.
+export const DEFAULT_VAULT_DIR = path.join(os.homedir(), 'x-scraper-vault');
 export const DEFAULT_QUEUE_PATH = path.join(os.homedir(), '.config', 'x-scraper', 'queue.sqlite');
 export const ENV_FILE_PATH = path.join(os.homedir(), '.config', 'x-scraper', '.env');
 

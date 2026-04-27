@@ -57,19 +57,20 @@ const main = async (): Promise<void> => {
   let totalUpdated = 0;
   try {
     for (const type of NORMALIZABLE_TYPES) {
-      // Page through entities of this type that lack normalized_name.
-      // Plain pagination via SKIP/LIMIT is fine here — corpus is in the
-      // low thousands, and we're under-loading the JVM.
-      let offset = 0;
-      // Loop terminates when a page returns 0 records (break below).
+      // No SKIP: the WHERE filter (normalized_name IS NULL) shrinks the
+      // candidate set on every iteration as we SET the property on the
+      // page, so SKIP-based pagination would silently skip about half
+      // the corpus. Use a stable id cursor instead.
+      let lastId = '';
       while (true as boolean) {
         const page = await session.run(
           `MATCH (n:${type})
-           WHERE n.normalized_name IS NULL OR n.normalized_aliases IS NULL
+           WHERE (n.normalized_name IS NULL OR n.normalized_aliases IS NULL)
+                 AND n.id > $lastId
            RETURN n.id AS id, n.name AS name, coalesce(n.aliases, []) AS aliases
            ORDER BY n.id ASC
-           SKIP $offset LIMIT $batch`,
-          { offset: neo4j.int(offset), batch: neo4j.int(BATCH_SIZE) },
+           LIMIT $batch`,
+          { lastId, batch: neo4j.int(BATCH_SIZE) },
         );
         if (page.records.length === 0) break;
         for (const row of page.records) {
@@ -91,9 +92,9 @@ const main = async (): Promise<void> => {
             },
           );
           totalUpdated += 1;
+          lastId = id;
         }
         totalProcessed += page.records.length;
-        offset += page.records.length;
         console.log(`  ${type}: ${String(totalProcessed)} processed`);
       }
     }

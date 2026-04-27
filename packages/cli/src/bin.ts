@@ -74,7 +74,7 @@ Commands:
   help                              Show this message
 
 Environment:
-  XSCRAPER_VAULT      Vault directory (default: ~/Documents/x-scraper-vault)
+  XSCRAPER_VAULT      Vault directory (default: ~/x-scraper-vault)
   XSCRAPER_QUEUE      Queue SQLite path (default: ~/.config/x-scraper/queue.sqlite)
 `;
 
