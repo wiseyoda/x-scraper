@@ -10,6 +10,16 @@ import * as path from 'node:path';
 
 import { CoreError, type EntityType, VAULT_DIRS } from '@x-scraper/core';
 
+/** Source.content_type → subdirectory mapping inside sources/. */
+export type SourceContentType = 'tweet' | 'article' | 'repo' | 'video' | 'pdf';
+const SOURCE_CONTENT_DIR: Record<SourceContentType, string> = {
+  tweet: VAULT_DIRS.sourcesTweets,
+  article: VAULT_DIRS.sourcesArticles,
+  repo: VAULT_DIRS.sourcesRepos,
+  video: VAULT_DIRS.sourcesVideos,
+  pdf: VAULT_DIRS.sourcesPdfs,
+};
+
 const PATH_RELATIVE_PREFIX = '..';
 const FORBIDDEN_ID_CHARS = ['/', '\\', '\0'] as const;
 
@@ -61,10 +71,15 @@ export const fileBasename = (id: string): string => {
   return `${id}.md`;
 };
 
-export const dirForEntityType = (type: EntityType): string => {
+export const dirForEntityType = (type: EntityType, contentType?: SourceContentType): string => {
   switch (type) {
     case 'Source':
-      return VAULT_DIRS.sources;
+      // Route by content_type so tweet/article/repo/video/pdf sources
+      // land beside their Article/Tweet/etc. entity-stub neighbours
+      // (sources/articles/, sources/tweets/, etc). Falls back to the
+      // flat sources/ dir only when content_type is missing — every
+      // production write supplies it.
+      return contentType !== undefined ? SOURCE_CONTENT_DIR[contentType] : VAULT_DIRS.sources;
     case 'Tweet':
       return VAULT_DIRS.sourcesTweets;
     case 'Article':

@@ -22,6 +22,7 @@ import {
   DEFAULT_ER_PROBABLE_THRESHOLD,
   DEFAULT_ER_VECTOR_K,
 } from './constants.js';
+import { normalizedSurfaceForms } from './normalize.js';
 import {
   type ErCandidateFinder,
   type ErDecision,
@@ -33,6 +34,9 @@ export interface ResolveEntityInput {
   candidateName: string;
   candidateEmbedding: number[];
   type: EntityType;
+  /** Aliases the extractor proposed for this entity. Folded into the
+   *  normalized-surface-form pre-flight match. */
+  candidateAliases?: string[];
 }
 
 export interface ResolveEntityOptions {
@@ -56,6 +60,21 @@ export const resolveEntity = async (
     );
   }
 
+  // Phase 0 — cheap exact match on normalized name + aliases. Catches
+  // `AI Agents`/`AI Agent`, `MCP`/`Model Context Protocol`, etc., that
+  // vector ER misses because the embeddings sit just below the merge
+  // threshold. Indexed at the adapter — see GraphStore.findEntityByNormalizedSurface.
+  if (options.finder.findByNormalizedSurface !== undefined) {
+    const surfaces = normalizedSurfaceForms(input.candidateName, input.candidateAliases ?? []);
+    if (surfaces.length > 0) {
+      const exact = await options.finder.findByNormalizedSurface(input.type, surfaces);
+      if (exact !== null) {
+        return { decision: 'MERGE', matchId: exact.id, confidence: 1, vectorScore: null };
+      }
+    }
+  }
+
+  // Phase 1 — vector ER fallback.
   const candidates = await options.finder.findCandidates(input.type, input.candidateEmbedding, k);
   const top = candidates[0];
   if (top === undefined) {

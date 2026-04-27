@@ -2,17 +2,23 @@
  * SQLite schema for the queue.
  *
  * Tables (all WITHOUT ROWID where the natural key is a string):
- *   - runs: top-level batch (one per `xs sync` invocation)
- *   - jobs: one per source per run, points at the active stage
- *   - attempts: append-only history of every stage attempt
- *   - dlq: jobs that exhausted retries on a single stage
- *   - cost_ledger: every LLM call with run/job/stage attribution
+ *   - runs:          top-level batch (one per `xs sync` invocation)
+ *   - jobs:          one per source per run, points at the active stage
+ *   - attempts:      append-only history of every stage attempt
+ *   - dlq:           jobs that exhausted retries on a single stage
+ *   - cost_ledger:   every LLM call with run/job/stage attribution
+ *   - bookmark_ledger (v2): durable backlog of bookmarks/likes/posts
+ *                    enumerated from X.com, with sync status. Lets
+ *                    `xs bookmarks pull` and `xs bookmarks sync` work
+ *                    incrementally across sessions.
  *
- * Migrations bump the user_version pragma. v0 is the bootstrap schema
- * below; future migrations add columns or new tables only.
+ * Migrations bump the user_version pragma. v1 is the bootstrap schema.
+ * v2+ adds the named ALTER/CREATE statements in MIGRATIONS — destructive
+ * changes (column drops, table rebuilds) require a new bumped version
+ * with explicit data-preserving SQL.
  */
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 4;
 
 export const SCHEMA_SQL = `
 PRAGMA journal_mode = WAL;
@@ -73,6 +79,9 @@ CREATE TABLE IF NOT EXISTS cost_ledger (
   recorded_at   TEXT NOT NULL,
   run_id        TEXT,
   job_id        TEXT,
+  -- v3: bookmark_ledger.entry_id when this cost was billed on behalf
+  -- of a specific bookmark (T22). Lets xs cost --by-entry group spend.
+  entry_id      TEXT,
   stage         TEXT,
   provider      TEXT NOT NULL,
   model         TEXT NOT NULL,
@@ -85,4 +94,102 @@ CREATE TABLE IF NOT EXISTS cost_ledger (
 
 CREATE INDEX IF NOT EXISTS ledger_recorded_idx ON cost_ledger (recorded_at);
 CREATE INDEX IF NOT EXISTS ledger_run_idx ON cost_ledger (run_id);
+CREATE INDEX IF NOT EXISTS ledger_entry_idx ON cost_ledger (entry_id);
+
+CREATE TABLE IF NOT EXISTS bookmark_ledger (
+  entry_id    TEXT PRIMARY KEY,
+  tweet_id    TEXT NOT NULL,
+  source      TEXT NOT NULL CHECK (source IN ('bookmarks','likes','posts')),
+  source_url  TEXT NOT NULL,
+  author      TEXT,
+  text        TEXT NOT NULL,
+  urls_json   TEXT NOT NULL DEFAULT '[]',
+  captured_at TEXT NOT NULL,
+  tweet_created_at TEXT,
+  status      TEXT NOT NULL CHECK (status IN ('new','synced','failed','skipped')) DEFAULT 'new',
+  synced_at   TEXT,
+  run_id      TEXT,
+  job_id      TEXT,
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  last_error  TEXT,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL,
+  -- v3 — hard auto-expand provenance, edit-detection, audit trail.
+  -- parent_entry_id is the originating bookmark when source_kind='derived'
+  -- (e.g. an Article URL discovered inside a tweet body); NULL for organic
+  -- bookmarks pulled directly from X.com. text_hash lets re-pulls detect
+  -- edits and supersede the prior row instead of clobbering it.
+  parent_entry_id TEXT REFERENCES bookmark_ledger(entry_id),
+  source_kind TEXT NOT NULL DEFAULT 'organic'
+    CHECK (source_kind IN ('organic','derived')),
+  text_hash TEXT,
+  superseded_at TEXT
+) WITHOUT ROWID;
+
+CREATE INDEX IF NOT EXISTS bookmark_ledger_status_captured_idx
+  ON bookmark_ledger (status, captured_at);
+CREATE INDEX IF NOT EXISTS bookmark_ledger_source_captured_idx
+  ON bookmark_ledger (source, captured_at);
+CREATE INDEX IF NOT EXISTS bookmark_ledger_parent_idx
+  ON bookmark_ledger (parent_entry_id);
+CREATE INDEX IF NOT EXISTS bookmark_ledger_source_url_idx
+  ON bookmark_ledger (source_url);
 `;
+
+/**
+ * Forward-only migrations applied after the bootstrap SCHEMA_SQL when an
+ * existing database is at a lower user_version. Each entry runs in a
+ * single exec() so multi-statement blocks stay atomic.
+ */
+export const MIGRATIONS: Record<number, string> = {
+  2: `
+    CREATE TABLE IF NOT EXISTS bookmark_ledger (
+      entry_id    TEXT PRIMARY KEY,
+      tweet_id    TEXT NOT NULL,
+      source      TEXT NOT NULL CHECK (source IN ('bookmarks','likes','posts')),
+      source_url  TEXT NOT NULL,
+      author      TEXT,
+      text        TEXT NOT NULL,
+      urls_json   TEXT NOT NULL DEFAULT '[]',
+      captured_at TEXT NOT NULL,
+      tweet_created_at TEXT,
+      status      TEXT NOT NULL CHECK (status IN ('new','synced','failed','skipped')) DEFAULT 'new',
+      synced_at   TEXT,
+      run_id      TEXT,
+      job_id      TEXT,
+      attempts    INTEGER NOT NULL DEFAULT 0,
+      last_error  TEXT,
+      created_at  TEXT NOT NULL,
+      updated_at  TEXT NOT NULL
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS bookmark_ledger_status_captured_idx
+      ON bookmark_ledger (status, captured_at);
+    CREATE INDEX IF NOT EXISTS bookmark_ledger_source_captured_idx
+      ON bookmark_ledger (source, captured_at);
+  `,
+  3: `
+    -- Note: SQLite ALTER TABLE ADD COLUMN can't add NOT NULL without a
+    -- default; source_kind has 'organic' default which covers existing
+    -- rows. parent_entry_id stays nullable. text_hash + superseded_at
+    -- start NULL and get populated as new pulls happen.
+    ALTER TABLE bookmark_ledger ADD COLUMN parent_entry_id TEXT
+      REFERENCES bookmark_ledger(entry_id);
+    ALTER TABLE bookmark_ledger ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'organic';
+    ALTER TABLE bookmark_ledger ADD COLUMN text_hash TEXT;
+    ALTER TABLE bookmark_ledger ADD COLUMN superseded_at TEXT;
+    CREATE INDEX IF NOT EXISTS bookmark_ledger_parent_idx
+      ON bookmark_ledger (parent_entry_id);
+    CREATE INDEX IF NOT EXISTS bookmark_ledger_source_url_idx
+      ON bookmark_ledger (source_url);
+  `,
+  4: `
+    -- T22: cost_ledger entry_id attribution. Originally folded into the
+    -- v3 migration mid-session; some local dbs reached user_version=3
+    -- before that fold-in landed. v4 backfills the column for any db
+    -- that's stuck at v3 without it. Idempotent via the column-existence
+    -- check in runMigration.
+    ALTER TABLE cost_ledger ADD COLUMN entry_id TEXT;
+    CREATE INDEX IF NOT EXISTS ledger_entry_idx ON cost_ledger (entry_id);
+  `,
+};

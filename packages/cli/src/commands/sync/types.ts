@@ -34,6 +34,21 @@ export interface SourceItem {
   byline?: string;
   /** ISO timestamp when the source was discovered. */
   discoveredAt?: string;
+  /**
+   * Originating bookmark_ledger entry_id when this source came from a
+   * ledger row. Used by hard auto-expand to set parent_entry_id on any
+   * derived rows it discovers in the body. Undefined for ad-hoc URL
+   * syncs (`xs sync --urls=...`).
+   */
+  entryId?: string;
+  /**
+   * X-resolved expanded URLs from the ledger's urls_json column. Tweet
+   * bodies keep `https://t.co/...` shortlinks verbatim; auto-expand
+   * needs the resolved destinations or the derived rows would dedupe
+   * by t.co and route to the wrong ingestor. Undefined / empty for
+   * non-tweet sources, where body URL scanning is authoritative.
+   */
+  expandedUrls?: string[];
 }
 
 export interface ClaimFinder {
@@ -128,6 +143,11 @@ export interface JobContext {
     }[];
     relationships: { from: string; to: string; type: string }[];
   } | null;
+  /** Per-entity embeddings keyed by the extractor's local entity id.
+   *  Computed by the embed_entities stage and consumed by resolve_ents.
+   *  Empty when extraction emitted no embeddable entities (e.g. a source
+   *  with only Source/Topic/Claim entries). */
+  entityEmbeddings: Map<string, number[]>;
   /** Resolved entity decisions: client id → final graph id. */
   entityResolutions: Map<
     string,

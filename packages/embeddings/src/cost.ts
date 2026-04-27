@@ -12,6 +12,8 @@ export interface CostSink {
   recordCost: (input: {
     runId?: string;
     jobId?: string;
+    /** bookmark_ledger.entry_id (T22). */
+    entryId?: string;
     stage?: Stage;
     provider: string;
     model: string;
@@ -27,6 +29,7 @@ export interface CostAttribution {
   sink: CostSink;
   runId?: string;
   jobId?: string;
+  entryId?: string;
   stage?: Stage;
 }
 

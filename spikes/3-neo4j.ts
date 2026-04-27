@@ -77,8 +77,34 @@ const randomEmbedding = (): number[] => {
   return out;
 };
 
-const wipe = async (session: Session): Promise<void> => {
-  await session.run(`MATCH (n) DETACH DELETE n`);
+// Every node this spike writes is keyed under this prefix so cleanup is a
+// scoped DELETE — never the bulk `MATCH (n) DETACH DELETE n` that nuked
+// production once. Convention: any spike that talks to the live Neo4j
+// MUST prefix its node IDs with `xs_spike<N>_` and DETACH DELETE in its
+// `finally` block. Documented in CLAUDE.md.
+const SPIKE_PREFIX = 'xs_spike3_';
+
+const refuseIfDbIsPopulated = async (session: Session): Promise<void> => {
+  // Guard: this spike used to call `MATCH (n) DETACH DELETE n` which would
+  // wipe a populated production graph. Refuse to start if the DB looks like
+  // it already has real data.
+  const r = await session.run(`MATCH (n) WHERE NOT n.id STARTS WITH $p RETURN count(n) AS n`, {
+    p: SPIKE_PREFIX,
+  });
+  const raw = r.records[0]?.get('n') as { toNumber: () => number } | number | undefined;
+  const n = raw === undefined ? 0 : typeof raw === 'number' ? raw : raw.toNumber();
+  if (n > 0) {
+    throw new Error(
+      `refusing to run: Neo4j has ${n.toString()} non-spike nodes. ` +
+        `This spike is destructive (drops indexes/constraints) and was the ` +
+        `original source of the claim-{i} test pollution. Run only against ` +
+        `an empty database, or rename the spike to be prefix-only.`,
+    );
+  }
+};
+
+const wipeSpikeData = async (session: Session): Promise<void> => {
+  await session.run(`MATCH (n) WHERE n.id STARTS WITH $p DETACH DELETE n`, { p: SPIKE_PREFIX });
   await session.run(`DROP INDEX claim_embed_idx IF EXISTS`).catch(() => undefined);
   await session.run(`DROP CONSTRAINT concept_id_unique IF EXISTS`).catch(() => undefined);
   await session.run(`DROP CONSTRAINT source_id_unique IF EXISTS`).catch(() => undefined);
@@ -100,10 +126,16 @@ const main = async (): Promise<void> => {
   console.log(`neo4j server: ${info.agent ?? '(unknown)'}`);
 
   const session = driver.session({ database: dbName });
+  // Tracks whether the spike actually started writing; the finally
+  // block must NOT drop production indexes/constraints when the
+  // populated-DB guard refused to run. (Codex v2 P2.)
+  let didWrite = false;
   try {
+    await refuseIfDbIsPopulated(session);
+    didWrite = true;
     console.log('\n=== schema ===');
-    await time('wipe prior data + indexes', async () => {
-      await wipe(session);
+    await time('wipe prior spike data + indexes', async () => {
+      await wipeSpikeData(session);
     });
 
     await time('create node-id constraints', async () => {
@@ -129,7 +161,7 @@ const main = async (): Promise<void> => {
     console.log('\n=== insert ===');
     await time(`insert ${String(NUM_CONCEPTS)} concepts`, async () => {
       const concepts = Array.from({ length: NUM_CONCEPTS }, (_, i) => ({
-        id: `concept-${String(i)}`,
+        id: `${SPIKE_PREFIX}concept-${String(i)}`,
         name: `Concept ${String(i)}`,
       }));
       await session.run(`UNWIND $rows AS row CREATE (c:Concept {id: row.id, name: row.name})`, {
@@ -138,13 +170,15 @@ const main = async (): Promise<void> => {
     });
 
     await time('insert 1 source', async () => {
-      await session.run(`CREATE (s:Source {id: 'source-0', url: 'https://example.com/0'})`);
+      await session.run(`CREATE (s:Source {id: $id, url: 'https://example.com/0'})`, {
+        id: `${SPIKE_PREFIX}source-0`,
+      });
     });
 
     await time(`insert ${String(NUM_CLAIMS)} claims with embeddings`, async () => {
       for (let i = 0; i < NUM_CLAIMS; i += BATCH_SIZE) {
         const rows = Array.from({ length: Math.min(BATCH_SIZE, NUM_CLAIMS - i) }, (_, j) => ({
-          id: `claim-${String(i + j)}`,
+          id: `${SPIKE_PREFIX}claim-${String(i + j)}`,
           text: `Claim ${String(i + j)}`,
           embedding: randomEmbedding(),
         }));
@@ -157,9 +191,10 @@ const main = async (): Promise<void> => {
 
     await time(`insert ${String(NUM_CLAIMS)} EXTRACTED_FROM edges`, async () => {
       await session.run(
-        `MATCH (s:Source {id: 'source-0'})
-         MATCH (c:Claim) WHERE c.id STARTS WITH 'claim-'
+        `MATCH (s:Source {id: $sourceId})
+         MATCH (c:Claim) WHERE c.id STARTS WITH $p
          CREATE (c)-[:EXTRACTED_FROM]->(s)`,
+        { sourceId: `${SPIKE_PREFIX}source-0`, p: SPIKE_PREFIX },
       );
     });
 
@@ -168,8 +203,14 @@ const main = async (): Promise<void> => {
       for (let i = 0; i < NUM_CLAIMS; i += 1) {
         const a = i % NUM_CONCEPTS;
         const b = (i * MENTIONS_PRIME_OFFSET + MENTIONS_PRIME_SHIFT) % NUM_CONCEPTS;
-        pairs.push({ claimId: `claim-${String(i)}`, conceptId: `concept-${String(a)}` });
-        pairs.push({ claimId: `claim-${String(i)}`, conceptId: `concept-${String(b)}` });
+        pairs.push({
+          claimId: `${SPIKE_PREFIX}claim-${String(i)}`,
+          conceptId: `${SPIKE_PREFIX}concept-${String(a)}`,
+        });
+        pairs.push({
+          claimId: `${SPIKE_PREFIX}claim-${String(i)}`,
+          conceptId: `${SPIKE_PREFIX}concept-${String(b)}`,
+        });
       }
       await session.run(
         `UNWIND $pairs AS p
@@ -187,8 +228,9 @@ const main = async (): Promise<void> => {
 
     // Warm-up call so the JVM page cache loads claim/concept pages.
     await session.run(
-      `MATCH (c:Claim {id: 'claim-0'})-[:MENTIONS]->(k:Concept)<-[:MENTIONS]-(c2:Claim)
+      `MATCH (c:Claim {id: $id})-[:MENTIONS]->(k:Concept)<-[:MENTIONS]-(c2:Claim)
        RETURN count(c2) AS n`,
+      { id: `${SPIKE_PREFIX}claim-0` },
     );
     await session.run(
       `CALL db.index.vector.queryNodes('claim_embed_idx', $k, $embedding) YIELD node RETURN node.id`,
@@ -207,10 +249,11 @@ const main = async (): Promise<void> => {
 
     const { ms: traverseMs } = await time('2-hop Claim->Concept->Claim traversal', async () => {
       const result = await session.run(
-        `MATCH (c:Claim {id: 'claim-0'})-[:MENTIONS]->(k:Concept)<-[:MENTIONS]-(c2:Claim)
+        `MATCH (c:Claim {id: $id})-[:MENTIONS]->(k:Concept)<-[:MENTIONS]-(c2:Claim)
          WHERE c <> c2
          RETURN c2.id AS id, count(k) AS shared
          ORDER BY shared DESC LIMIT 10`,
+        { id: `${SPIKE_PREFIX}claim-0` },
       );
       return result.records.length;
     });
@@ -225,6 +268,15 @@ const main = async (): Promise<void> => {
     console.log(`\nspike 3 ${ok ? 'PASSED' : 'FAILED'}`);
     if (!ok) process.exit(1);
   } finally {
+    // Only clean up if we actually wrote data. wipeSpikeData drops
+    // claim_embed_idx and the id constraints — destructive against a
+    // populated production graph. Run it only when the spike's own
+    // writes need cleaning. (Codex v2 P2.)
+    if (didWrite) {
+      await wipeSpikeData(session).catch((err: unknown) => {
+        console.error('cleanup failed:', err);
+      });
+    }
     await session.close();
     await driver.close();
   }

@@ -17,8 +17,10 @@ import {
   createArticleIngestor,
   createPdfIngestor,
   createRepoIngestor,
+  createXArticleIngestor,
   createYouTubeIngestor,
   type Ingestor,
+  type XArticleSession,
 } from '@x-scraper/ingestor';
 import type { LlmCostSink } from '@x-scraper/llm';
 import { createClaudeProvider } from '@x-scraper/llm';
@@ -26,6 +28,7 @@ import { createLogger, jsonLineSink } from '@x-scraper/observability';
 import type { JobQueue } from '@x-scraper/queue';
 import { createSqliteQueue } from '@x-scraper/queue';
 import type { ErCandidateFinder, ExistingClaim } from '@x-scraper/reconciler';
+import { closeSession, openAuthenticatedSession } from '@x-scraper/scraper';
 import { createMarkdownVault } from '@x-scraper/vault';
 
 import type { ClaimFinder, SourceItem, SyncDeps } from './types.js';
@@ -101,9 +104,16 @@ export const wireSyncDeps = async (
   const embedCost: CostSink = { recordCost: (c) => queue.recordCost(c) };
   const llmCost: LlmCostSink = { recordCost: (c) => queue.recordCost(c) };
 
+  // Embedding cost attribution carries entryId when this wire is for
+  // a single bookmark sync (T22). For multi-source URL syncs the
+  // attribution is wire-time-fixed; entry_id is not meaningful there.
+  const wireTimeEntryId = curated.length === 1 ? curated[0]?.entryId : undefined;
   const embeddings = createGeminiEmbedding({
     apiKey: requireKey(env, 'GEMINI_API_KEY'),
-    cost: { sink: embedCost },
+    cost: {
+      sink: embedCost,
+      ...(wireTimeEntryId === undefined ? {} : { entryId: wireTimeEntryId }),
+    },
   });
 
   const anthropic = new Anthropic({ apiKey: requireKey(env, 'ANTHROPIC_API_KEY') });
@@ -113,7 +123,24 @@ export const wireSyncDeps = async (
   });
 
   const githubToken = process.env.GITHUB_TOKEN ?? env.GITHUB_TOKEN;
+  // X Article ingestor (T14): Patchright-rendered SPA scrape for
+  // x.com/<user>/article/<id> URLs. Order BEFORE the generic article
+  // ingestor so it wins the matches() race for x.com URLs. The session
+  // is opened lazily — first matching URL triggers a Patchright launch.
+  const xArticleIngestor = createXArticleIngestor({
+    openSession: async (): Promise<XArticleSession> => {
+      const profileDir =
+        process.env.XSCRAPER_PROFILE_DIR ??
+        `${process.env.HOME ?? ''}/.config/x-scraper/browser-profile`;
+      const session = await openAuthenticatedSession({ profileDir });
+      return {
+        page: session.page as unknown as XArticleSession['page'],
+        close: () => closeSession(session),
+      };
+    },
+  });
   const ingestors: Ingestor[] = [
+    xArticleIngestor,
     createPdfIngestor(),
     createRepoIngestor(githubToken === undefined ? {} : { token: githubToken }),
     createYouTubeIngestor(),
@@ -122,19 +149,31 @@ export const wireSyncDeps = async (
 
   const erFinder: ErCandidateFinder = {
     findCandidates: async (type, embedding, k) => {
-      // Vector search is Claim-only today; for non-Claim entity types we
-      // fall back to "no candidates", which makes the resolver default to
-      // NEW. Slice 8 will add per-entity-type vector indexes.
-      if (type !== 'Claim') return [];
-      return graph.vectorSearch('Claim', embedding, k);
+      // Source/Topic/Claim hit different indexes (Source/Topic have no
+      // ER; Claim uses claim_embed_idx); everything else hits
+      // entity_embed_idx via the Entity meta-label.
+      return graph.vectorSearch(type, embedding, k);
     },
+    findByNormalizedSurface: (type, surfaces) =>
+      graph.findEntityByNormalizedSurface(type, surfaces),
   };
 
-  // Existing-claims lookup. For v1 we keep this simple: the graph has no
-  // by-subject index yet, so we return an empty list — every incoming
-  // claim is treated as ADD. Slice 8 / a follow-up adds a real lookup.
+  // Existing-claims lookup wired to the graph adapter — replaces the old
+  // empty-stub that made every claim land as ADD. UPDATE/DELETE
+  // reconciliation paths now actually fire.
   const claimFinder: ClaimFinder = {
-    findClaimsForSubject: (_subject: string): Promise<ExistingClaim[]> => Promise.resolve([]),
+    findClaimsForSubject: async (subject: string): Promise<ExistingClaim[]> => {
+      const rows = await graph.findClaimsForSubject(subject);
+      return rows.map((r) => ({
+        id: r.id,
+        subject: r.subject,
+        predicate: r.predicate,
+        object: r.object,
+        validAt: r.validAt,
+        invalidAt: r.invalidAt,
+        sourceId: r.sourceId,
+      }));
+    },
   };
 
   const logger = createLogger({
@@ -160,6 +199,13 @@ export const wireSyncDeps = async (
   const cleanup = async (): Promise<void> => {
     queue.close();
     await graph.close();
+    // Release any long-lived ingestor resources (Patchright session for
+    // the x-article ingestor, etc).
+    for (const ing of ingestors) {
+      if (ing.dispose !== undefined) {
+        await ing.dispose().catch(() => undefined);
+      }
+    }
   };
 
   return { deps, cleanup };

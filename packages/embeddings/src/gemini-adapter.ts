@@ -141,6 +141,7 @@ export const createGeminiEmbedding = (config: GeminiConfig): EmbeddingProvider =
       config.cost.sink.recordCost({
         ...(config.cost.runId === undefined ? {} : { runId: config.cost.runId }),
         ...(config.cost.jobId === undefined ? {} : { jobId: config.cost.jobId }),
+        ...(config.cost.entryId === undefined ? {} : { entryId: config.cost.entryId }),
         ...(config.cost.stage === undefined ? {} : { stage: config.cost.stage }),
         provider: 'gemini',
         model: modelUsed,

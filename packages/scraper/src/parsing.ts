@@ -12,6 +12,13 @@ import { z } from 'zod';
 import type { BookmarkRecord } from './types.js';
 import { ScraperError } from './types.js';
 
+/**
+ * Per-entry shape extractor — a minimal Zod schema that pulls out only
+ * the keys we need (entryId, optional cursor fields, optional tweet
+ * rest_id). The `entries` array in the outer schema is intentionally
+ * `z.unknown()` so the original raw object survives intact and can be
+ * passed downstream to extractTweetPayload.
+ */
 const TimelineEntrySchema = z.object({
   entryId: z.string().min(1),
   content: z
@@ -31,7 +38,7 @@ const TimelineEntrySchema = z.object({
 
 const TimelineInstructionSchema = z.object({
   type: z.string().optional(),
-  entries: z.array(TimelineEntrySchema).optional(),
+  entries: z.array(z.unknown()).optional(),
 });
 
 const BookmarksResponseSchema = z.object({
@@ -75,6 +82,13 @@ const UserTimelineResponseSchema = z.object({
     })
     .partial(),
 });
+
+/** Minimal per-entry parser used inside the loop. Skips silently when an
+ *  entry doesn't match — entries can be ads/tombstones/cursor markers. */
+const parseEntry = (raw: unknown): z.infer<typeof TimelineEntrySchema> | null => {
+  const result = TimelineEntrySchema.safeParse(raw);
+  return result.success ? result.data : null;
+};
 
 export type RawUserTimelineResponse = z.infer<typeof UserTimelineResponseSchema>;
 
@@ -131,7 +145,9 @@ export const parseBookmarksPage = (
 
   for (const ins of instructions) {
     if (ins.type !== TIMELINE_ADD_ENTRIES) continue;
-    for (const entry of ins.entries ?? []) {
+    for (const rawEntry of ins.entries ?? []) {
+      const entry = parseEntry(rawEntry);
+      if (entry === null) continue;
       if (isCursorEntry(entry.entryId)) {
         const content = entry.content;
         if (content?.cursorType === CURSOR_TYPE_BOTTOM && content.value !== undefined) {
@@ -141,7 +157,11 @@ export const parseBookmarksPage = (
       }
       const tweetId = tweetIdFromEntry(entry);
       if (tweetId === null) continue;
-      partials.push({ entryId: entry.entryId, tweetId, raw: entry });
+      // Push the ORIGINAL raw entry (not the parsed/stripped one) so
+      // extractTweetPayload downstream can read every field — including
+      // legacy.full_text, core.user_results, note_tweet, etc — that we
+      // intentionally omitted from TimelineEntrySchema.
+      partials.push({ entryId: entry.entryId, tweetId, raw: rawEntry });
     }
   }
 
@@ -216,7 +236,9 @@ export const parseUserTimelinePage = (
   let bottomCursor: string | null = null;
   for (const ins of instructions) {
     if (ins.type !== TIMELINE_ADD_ENTRIES) continue;
-    for (const entry of ins.entries ?? []) {
+    for (const rawEntry of ins.entries ?? []) {
+      const entry = parseEntry(rawEntry);
+      if (entry === null) continue;
       if (isCursorEntry(entry.entryId)) {
         const content = entry.content;
         if (content?.cursorType === CURSOR_TYPE_BOTTOM && content.value !== undefined) {
@@ -226,7 +248,7 @@ export const parseUserTimelinePage = (
       }
       const tweetId = tweetIdFromEntry(entry);
       if (tweetId === null) continue;
-      partials.push({ entryId: entry.entryId, tweetId, raw: entry });
+      partials.push({ entryId: entry.entryId, tweetId, raw: rawEntry });
     }
   }
   const records: BookmarkRecord[] = partials.map((p) => ({

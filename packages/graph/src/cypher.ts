@@ -44,18 +44,40 @@ OPTIONS { indexConfig: {
 }}`;
 };
 
+// Source/Claim/Topic stay as their own primary label; everything else
+// (Person/Tool/Concept/Repo/Article/Tweet/Video/PDF) gets the meta-label
+// `Entity` so a single entity_embed_idx covers them all. The multi-label
+// is added on CREATE — existing nodes need a backfill SET to acquire it.
+const ENTITY_META_TYPES: ReadonlySet<EntityType> = new Set<EntityType>([
+  'Person',
+  'Tool',
+  'Concept',
+  'Repo',
+  'Article',
+  'Tweet',
+  'Video',
+  'PDF',
+]);
+
+// MERGE only accepts a single label; the secondary :Entity label is
+// added via SET in the same statement (see setMetaLabel below).
+const labelClauseForUpsert = (label: EntityType): string => label;
+
+const setMetaLabel = (label: EntityType): string =>
+  ENTITY_META_TYPES.has(label) ? ', n:Entity' : '';
+
 export const buildUpsertNode = (label: EntityType): string => {
   assertValidLabel(label);
-  return `MERGE (n:${label} { id: $id })
-ON CREATE SET n += $props
-ON MATCH SET n += $props`;
+  return `MERGE (n:${labelClauseForUpsert(label)} { id: $id })
+ON CREATE SET n += $props${setMetaLabel(label)}
+ON MATCH SET n += $props${setMetaLabel(label)}`;
 };
 
 export const buildUpsertNodeWithEmbedding = (label: EntityType): string => {
   assertValidLabel(label);
-  return `MERGE (n:${label} { id: $id })
-ON CREATE SET n += $props, n.embedding = $embedding
-ON MATCH SET n += $props, n.embedding = $embedding`;
+  return `MERGE (n:${labelClauseForUpsert(label)} { id: $id })
+ON CREATE SET n += $props, n.embedding = $embedding${setMetaLabel(label)}
+ON MATCH SET n += $props, n.embedding = $embedding${setMetaLabel(label)}`;
 };
 
 export const buildUpsertEdge = (edgeType: EdgeType): string => {
@@ -65,9 +87,15 @@ export const buildUpsertEdge = (edgeType: EdgeType): string => {
   // must NEVER reset invalid_at on a previously invalidated edge — that would
   // erase history. We OPTIONAL MATCH on the current edge, then FOREACH to
   // either CREATE a new current edge (none exists) or SET the existing one.
+  //
+  // Exclude cooccurrence edges from this match path: cooccurrence-typed
+  // RELATED_TO edges have kind='cooccurrence' and accumulate
+  // sources[]/cooccurrence_count via buildUpsertCooccurrenceEdge. A
+  // generic RELATED_TO upsert from the model must NOT match (and
+  // overwrite) a cooccurrence edge between the same nodes.
   return `MATCH (a { id: $from }), (b { id: $to })
 OPTIONAL MATCH (a)-[existing:${edgeType}]->(b)
-WHERE existing.invalid_at IS NULL
+WHERE existing.invalid_at IS NULL AND existing.kind IS NULL
 FOREACH (_ IN CASE WHEN existing IS NULL THEN [1] ELSE [] END |
   CREATE (a)-[r:${edgeType}]->(b)
   SET r.valid_at = $validAt, r.invalid_at = $invalidAt,
@@ -79,7 +107,7 @@ FOREACH (_ IN CASE WHEN existing IS NOT NULL THEN [1] ELSE [] END |
 )
 WITH a, b
 OPTIONAL MATCH (a)-[r:${edgeType}]->(b)
-WHERE r.invalid_at IS NULL
+WHERE r.invalid_at IS NULL AND r.kind IS NULL
 RETURN r`;
 };
 
@@ -124,3 +152,69 @@ export const readVectorIndexDims = (): string =>
   `SHOW VECTOR INDEXES YIELD name, options
 WHERE name = $name
 RETURN options.indexConfig.\`vector.dimensions\` AS dims`;
+
+/**
+ * Find an entity of the given type by exact match on normalized_name OR
+ * any member of normalized_aliases. Caller computes the surface forms
+ * (cheap, deterministic — see reconciler/normalize.ts) and passes them
+ * in. We accept up to a handful of forms; the index makes this O(1)-ish
+ * per form.
+ */
+export const buildFindByNormalizedSurface = (label: EntityType): string => {
+  assertValidLabel(label);
+  return `MATCH (n:${label})
+WHERE n.normalized_name IN $surfaces
+   OR ANY(a IN coalesce(n.normalized_aliases, []) WHERE a IN $surfaces)
+RETURN n.id AS id,
+       coalesce(n.normalized_name, head(n.normalized_aliases)) AS matchedSurface
+LIMIT 1`;
+};
+
+/**
+ * Lookup current claims for a subject. Joins through the EXTRACTED_FROM
+ * edge (current only — invalid_at IS NULL) so callers can invalidate
+ * the right edge on UPDATE/DELETE.
+ */
+export const buildFindClaimsForSubject = (): string =>
+  `MATCH (c:Claim {subject: $subject})-[r:EXTRACTED_FROM]->(s:Source)
+WHERE coalesce(r.invalid_at, '') = ''
+RETURN c.id AS id,
+       c.subject AS subject,
+       c.predicate AS predicate,
+       c.object AS object,
+       coalesce(r.valid_at, '') AS validAt,
+       r.invalid_at AS invalidAt,
+       s.id AS sourceId
+ORDER BY validAt DESC
+LIMIT 100`;
+
+/**
+ * Upsert a Concept-Concept co-occurrence edge. Unlike the bi-temporal
+ * buildUpsertEdge — which models "current relationship" semantics with
+ * explicit invalid_at — co-occurrence is additive: each new source that
+ * mentions the same pair bumps cooccurrence_count + appends source_id
+ * to the sources[] list. The MERGE keys on (from, to, kind) so a single
+ * edge accumulates evidence rather than spawning parallel edges.
+ *
+ * Topic detection (Louvain) reads cooccurrence_count as edge weight in
+ * a follow-up upgrade; for now any positive count counts.
+ *
+ * Self-loop guard at caller (we never call this with from == to).
+ */
+export const buildUpsertCooccurrenceEdge = (): string =>
+  `MATCH (a {id: $from}), (b {id: $to})
+MERGE (a)-[r:RELATED_TO {kind: 'cooccurrence'}]->(b)
+ON CREATE SET r.cooccurrence_count = 1,
+              r.sources = [$sourceId],
+              r.created_at = $now,
+              r.updated_at = $now
+ON MATCH SET r.cooccurrence_count = CASE WHEN $sourceId IN coalesce(r.sources, [])
+                                         THEN coalesce(r.cooccurrence_count, 0)
+                                         ELSE coalesce(r.cooccurrence_count, 0) + 1
+                                    END,
+             r.sources = CASE WHEN $sourceId IN coalesce(r.sources, [])
+                              THEN r.sources
+                              ELSE coalesce(r.sources, []) + $sourceId
+                         END,
+             r.updated_at = $now
+RETURN r.cooccurrence_count AS count`;

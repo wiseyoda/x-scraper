@@ -199,6 +199,7 @@ const processJob = async (
     ingested: null,
     embedding: null,
     extraction: null,
+    entityEmbeddings: new Map(),
     entityResolutions: new Map(),
     claimDecisions: new Map(),
     vaultWrites: [],

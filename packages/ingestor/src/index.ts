@@ -7,6 +7,8 @@ export {
   INGESTOR_KINDS,
   MAX_BODY_CHARS,
   MIN_BODY_CHARS,
+  X_ARTICLE_URL_RE,
+  X_TWEET_URL_RE,
 } from './constants.js';
 export { ingest, selectIngestor } from './dispatcher.js';
 export type { FetchLike, FetchOptions } from './http.js';
@@ -17,6 +19,8 @@ export type { RepoConfig } from './repo.js';
 export { createRepoIngestor, parseGitHubUrl } from './repo.js';
 export type { IngestedSource, Ingestor, IngestorErrorCode } from './types.js';
 export { IngestorError } from './types.js';
+export type { XArticleConfig, XArticlePage, XArticleSession } from './x-article.js';
+export { createXArticleIngestor, isXArticleUrl } from './x-article.js';
 export type { YouTubeConfig } from './youtube.js';
 export {
   captionsXmlToText,

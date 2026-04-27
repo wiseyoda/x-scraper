@@ -18,15 +18,21 @@ import {
   DEFAULT_AWAIT_INDEXES_SECONDS,
   DEFAULT_EMBED_DIMS,
   DEFAULT_SIMILARITY,
+  ENTITY_VECTOR_INDEX_NAME,
+  ENTITY_VECTOR_OVERFETCH,
+  ENTITY_VECTOR_PROP,
   ID_CONSTRAINTS,
   VECTOR_INDEX_NAME,
 } from './constants.js';
 import { readVectorIndexDims } from './cypher.js';
 import {
   buildCountNodes,
+  buildFindByNormalizedSurface,
+  buildFindClaimsForSubject,
   buildIdConstraint,
   buildInvalidateEdge,
   buildTraversal,
+  buildUpsertCooccurrenceEdge,
   buildUpsertEdge,
   buildUpsertNode,
   buildUpsertNodeWithEmbedding,
@@ -34,6 +40,8 @@ import {
   buildVectorSearch,
 } from './cypher.js';
 import type {
+  ConceptSubgraph,
+  ExistingClaimRecord,
   GraphEdge,
   GraphInitOptions,
   GraphNode,
@@ -106,6 +114,29 @@ export const createNeo4jGraph = (config: Neo4jConfig): GraphStore => {
       await session.run(
         buildVectorIndex(VECTOR_INDEX_NAME, 'Claim', VECTOR_INDEX_PROP, dims, DEFAULT_SIMILARITY),
       );
+      // Same drift-guard for the entity vector index. Both indexes share
+      // dims since the same Gemini model produces both Claim and Entity
+      // embeddings; if production has the entity index at different
+      // dims something has been hand-edited and we refuse to bind.
+      const existingEntityDims = await readExistingIndexDims(session, ENTITY_VECTOR_INDEX_NAME);
+      if (existingEntityDims !== undefined && existingEntityDims !== dims) {
+        throw new GraphError(
+          `vector index ${ENTITY_VECTOR_INDEX_NAME} already exists at ${existingEntityDims.toString()} dims; refusing to use it for ${dims.toString()}-dim embeddings. Drop the index or pick a new one.`,
+          'DIM_MISMATCH',
+        );
+      }
+      // Single index across the Entity meta-label covers Person/Tool/
+      // Concept/Repo/Article/Tweet/Video/PDF — see ENTITY_META_TYPES in
+      // cypher.ts. The reconciler's vector ER passes the type label so
+      // we filter results post-retrieval to the right kind.
+      await session.run(
+        `CREATE VECTOR INDEX ${ENTITY_VECTOR_INDEX_NAME} IF NOT EXISTS
+         FOR (n:Entity) ON (n.${ENTITY_VECTOR_PROP})
+         OPTIONS { indexConfig: {
+           \`vector.dimensions\`: ${dims.toString()},
+           \`vector.similarity_function\`: '${DEFAULT_SIMILARITY}'
+         }}`,
+      );
       // Block until every newly-created index is ONLINE. Without this, a
       // cold-start init() can return while the vector index is POPULATING
       // and an immediate vectorSearch() will fail.
@@ -129,7 +160,9 @@ export const createNeo4jGraph = (config: Neo4jConfig): GraphStore => {
   };
 
   const upsertNode = async (node: GraphNode): Promise<void> => {
-    if (node.embedding !== undefined && node.type === 'Claim') {
+    // Both Claim and Entity-meta nodes hit a vector index — assert dims
+    // on either path. Source/Topic carry no embedding.
+    if (node.embedding !== undefined) {
       assertDims(`upsertNode(${node.id})`, node.embedding);
     }
     await withSession(async (session) => {
@@ -181,13 +214,44 @@ export const createNeo4jGraph = (config: Neo4jConfig): GraphStore => {
     embedding: number[],
     k: number,
   ): Promise<VectorHit[]> => {
-    if (label !== 'Claim') {
-      throw new GraphError(
-        `vectorSearch only supported on Claim today (got ${label})`,
-        'INVALID_INPUT',
-      );
-    }
     assertDims('vectorSearch', embedding);
+    if (label === 'Source' || label === 'Topic') {
+      // Source/Topic don't carry embeddings — empty result lets resolver
+      // fall through to NEW. (Source ER doesn't apply; URLs are the
+      // natural key.) (Topic ER not used; communities derive deterministic ids.)
+      return [];
+    }
+    if (label !== 'Claim') {
+      // Entity-meta path: query the entity HNSW index, filter results
+      // post-retrieval to the requested type label so the score still
+      // reflects same-type similarity. db.index.vector.queryNodes
+      // returns the GLOBAL top k across all labels in the shared
+      // entity_embed_idx; if the nearest k happen to be the wrong
+      // type, we'd miss real same-type candidates that are just below
+      // them. Overfetch by ENTITY_VECTOR_OVERFETCH so the post-filter
+      // has enough candidates to find k same-type hits in mixed graphs.
+      const overfetchK = Math.max(k * ENTITY_VECTOR_OVERFETCH, k);
+      return await withSession(async (session) => {
+        const result = await session.run(
+          `CALL db.index.vector.queryNodes($index, $overfetchK, $embedding)
+           YIELD node, score
+           WHERE $label IN labels(node)
+           RETURN node.id AS id, score
+           LIMIT $k`,
+          {
+            index: ENTITY_VECTOR_INDEX_NAME,
+            overfetchK: neoIntFromNumber(overfetchK),
+            k: neoIntFromNumber(k),
+            embedding,
+            label,
+          },
+        );
+        return result.records.map((r) => ({
+          id: r.get('id') as string,
+          score: r.get('score') as number,
+        }));
+      });
+    }
     return await withSession(async (session) => {
       const result = await session.run(buildVectorSearch(VECTOR_INDEX_NAME), {
         index: VECTOR_INDEX_NAME,
@@ -226,6 +290,113 @@ export const createNeo4jGraph = (config: Neo4jConfig): GraphStore => {
     });
   };
 
+  /**
+   * Read every Concept node + every current RELATED_TO edge between two
+   * Concepts. Used by `xs topic detect` to feed Louvain. Filters on
+   * `invalid_at IS NULL` so superseded edges don't pollute the input.
+   */
+  const listConceptSubgraph = async (): Promise<ConceptSubgraph> => {
+    return await withSession(async (session) => {
+      // Fetch nodes that participate in at least one current RELATED_TO
+      // edge — isolated Concepts add no information for community detection.
+      const nodeResult = await session.run(`
+        MATCH (c:Concept)
+        WHERE EXISTS {
+          MATCH (c)-[r:RELATED_TO]-(:Concept)
+          WHERE r.invalid_at IS NULL
+        }
+        RETURN c.id AS id, c.name AS name
+      `);
+      const nodes = nodeResult.records.map((r) => ({
+        id: r.get('id') as string,
+        type: 'Concept' as const,
+        name: (r.get('name') as string | null) ?? (r.get('id') as string),
+      }));
+      // Edge query also pulls cooccurrence_count + the most recent
+      // captured_at across all sources contributing to the edge, so
+      // T19's recency weighting can decay it in JS without round-tripping.
+      const edgeResult = await session.run(`
+        MATCH (a:Concept)-[r:RELATED_TO]->(b:Concept)
+        WHERE coalesce(r.invalid_at, '') = ''
+        OPTIONAL MATCH (s:Source)
+        WHERE s.id IN coalesce(r.sources, [])
+        WITH a, b, r, max(s.captured_at) AS lastObservedAt
+        RETURN a.id AS fromId,
+               b.id AS toId,
+               coalesce(r.cooccurrence_count, 1) AS cooccurrenceCount,
+               lastObservedAt
+      `);
+      const edges = edgeResult.records.map((r) => {
+        const rawCount = r.get('cooccurrenceCount') as { toNumber: () => number } | number | null;
+        const cooccurrenceCount =
+          rawCount === null ? 1 : typeof rawCount === 'number' ? rawCount : rawCount.toNumber();
+        return {
+          from: r.get('fromId') as string,
+          to: r.get('toId') as string,
+          type: 'RELATED_TO' as const,
+          cooccurrenceCount,
+          lastObservedAt: (r.get('lastObservedAt') as string | null) ?? null,
+        };
+      });
+      return { nodes, edges };
+    });
+  };
+
+  const findEntityByNormalizedSurface = async (
+    label: EntityType,
+    surfaceForms: string[],
+  ): Promise<{ id: string; matchedSurface: string } | null> => {
+    if (surfaceForms.length === 0) return null;
+    return await withSession(async (session) => {
+      const result = await session.run(buildFindByNormalizedSurface(label), {
+        surfaces: surfaceForms,
+      });
+      const row = result.records[0];
+      if (row === undefined) return null;
+      return {
+        id: row.get('id') as string,
+        matchedSurface: (row.get('matchedSurface') as string | null) ?? '',
+      };
+    });
+  };
+
+  const upsertCooccurrenceEdge = async (input: {
+    from: string;
+    to: string;
+    sourceId: string;
+    now: string;
+  }): Promise<number> => {
+    return await withSession(async (session) => {
+      const result = await session.run(buildUpsertCooccurrenceEdge(), {
+        from: input.from,
+        to: input.to,
+        sourceId: input.sourceId,
+        now: input.now,
+      });
+      const value = result.records[0]?.get('count') as
+        | { toNumber: () => number }
+        | number
+        | undefined;
+      if (value === undefined) return 0;
+      return typeof value === 'number' ? value : value.toNumber();
+    });
+  };
+
+  const findClaimsForSubject = async (subject: string): Promise<ExistingClaimRecord[]> => {
+    return await withSession(async (session) => {
+      const result = await session.run(buildFindClaimsForSubject(), { subject });
+      return result.records.map((r) => ({
+        id: r.get('id') as string,
+        subject: r.get('subject') as string,
+        predicate: (r.get('predicate') as string | null) ?? '',
+        object: (r.get('object') as string | null) ?? '',
+        validAt: r.get('validAt') as string,
+        invalidAt: r.get('invalidAt') as string | null,
+        sourceId: r.get('sourceId') as string,
+      }));
+    });
+  };
+
   const close = async (): Promise<void> => {
     await driver.close();
   };
@@ -238,6 +409,10 @@ export const createNeo4jGraph = (config: Neo4jConfig): GraphStore => {
     vectorSearch,
     traverse,
     countNodes,
+    listConceptSubgraph,
+    findEntityByNormalizedSurface,
+    findClaimsForSubject,
+    upsertCooccurrenceEdge,
     close,
   };
 };

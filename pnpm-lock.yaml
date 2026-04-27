@@ -86,9 +86,15 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.91.1
         version: 0.91.1(zod@4.3.6)
+      '@x-scraper/community':
+        specifier: workspace:*
+        version: link:../community
       '@x-scraper/core':
         specifier: workspace:*
         version: link:../core
+      '@x-scraper/digest':
+        specifier: workspace:*
+        version: link:../digest
       '@x-scraper/embeddings':
         specifier: workspace:*
         version: link:../embeddings

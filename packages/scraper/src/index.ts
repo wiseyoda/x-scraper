@@ -14,6 +14,7 @@ export type {
   SessionCapInput,
 } from './bot-mitigation.js';
 export { createQueryIdRegistry, createSessionCap, jitteredDelay } from './bot-mitigation.js';
+export { TCO_ONLY_TWEET_RE } from './constants.js';
 export type { ParsedPage, RawBookmarksResponse, RawUserTimelineResponse } from './parsing.js';
 export {
   buildCursorReplayUrl,
@@ -21,5 +22,7 @@ export {
   parseUserTimelinePage,
   stripHttp2PseudoHeaders,
 } from './parsing.js';
+export type { TweetPayload } from './payload.js';
+export { extractTweetPayload, tweetPermalink } from './payload.js';
 export type { AuthOptions, BookmarkRecord, PageCursor, SessionInfo, SyncOptions } from './types.js';
 export { BookmarkRecordSchema, ScraperError } from './types.js';

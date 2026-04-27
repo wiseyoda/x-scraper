@@ -1,0 +1,61 @@
+name: Bench
+
+# Performance benchmarks gated by RUN_BENCH=1. Not in the main CI gate
+# because timings vary across runners; this job runs on a baselined
+# ubuntu-latest with a manual + weekly schedule and uploads the timings
+# as a JSON artifact for trend tracking.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Sunday 06:00 UTC.
+    - cron: '0 6 * * 0'
+
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bench:
+    name: Run perf benches
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build (bench tests import from compiled dist)
+        run: pnpm build
+
+      - name: Run benches
+        env:
+          RUN_BENCH: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p bench-results
+          # JSON reporter captures every test's duration for trend tracking;
+          # the bench tests themselves log per-call medians via console.log
+          # which the verbose reporter preserves.
+          pnpm exec vitest run \
+            --reporter=verbose \
+            --reporter=json \
+            --outputFile=bench-results/results.json \
+            packages/core packages/reconciler packages/community \
+            2>&1 | tee bench-results/run.log
+
+      - name: Upload bench artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results-${{ github.run_id }}
+          path: bench-results/
+          retention-days: 90

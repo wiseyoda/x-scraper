@@ -49,3 +49,7 @@ spikes/fixtures/
 
 # Codex review artifacts (latest few are kept manually)
 docs/codex/
+
+# Local scratch dir for ramp logs, snapshots, and codex review run logs.
+# Operational artifacts of a single ingest session — not source.
+.repostat/

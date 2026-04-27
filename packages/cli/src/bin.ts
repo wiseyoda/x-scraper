@@ -6,21 +6,34 @@
  * exercise this dispatcher.
  */
 
+import type { BookmarkSource } from '@x-scraper/queue';
 import { createMarkdownVault } from '@x-scraper/vault';
 
 import { parseArgs } from './argparse.js';
 import { runAuthLogin } from './commands/auth.js';
+import { runBookmarksPull, runBookmarksSync } from './commands/bookmarks.js';
 import { runCost } from './commands/cost.js';
 import { type CheckStatus, runDoctor } from './commands/doctor.js';
 import { runInit } from './commands/init.js';
 import { MCP_CLIENTS, type McpClient, runMcpRegister } from './commands/mcp-register.js';
 import { runReindex } from './commands/reindex.js';
 import { runReview } from './commands/review.js';
+import {
+  runScheduleInstall,
+  runScheduleUninstall,
+  type ScheduleMode,
+} from './commands/schedule.js';
 import { runStatus } from './commands/status.js';
 import { runSync } from './commands/sync/index.js';
 import { buildCuratedSources, wireSyncDeps } from './commands/sync/wire.js';
+import { runTopicDetect } from './commands/topic.js';
+import { runTrends } from './commands/trends.js';
 import { resolveConfig } from './config.js';
 import { ENV_FILE_PATH, EXIT_FAIL, EXIT_OK, EXIT_USAGE } from './constants.js';
+
+const BOOKMARK_SOURCES: readonly BookmarkSource[] = ['bookmarks', 'likes', 'posts'];
+const isBookmarkSource = (s: string): s is BookmarkSource =>
+  (BOOKMARK_SOURCES as readonly string[]).includes(s);
 
 const HELP = `xs — local-first knowledge graph from X.com bookmarks/likes/posts
 
@@ -39,13 +52,29 @@ Commands:
   reindex --from-vault [--limit=N]  Rebuild the graph from existing vault markdown
        [--max-attempts=N]
   auth login [--profile-dir=DIR]    Open an authenticated x.com session (Patchright)
+  bookmarks pull                    Pull bookmarks/likes/posts from x.com into the ledger
+       [--source=bookmarks|likes|posts]
+       [--max=N] [--profile-dir=DIR]
+  bookmarks sync                    Run pipeline against ledger rows one-at-a-time
+       [--order=oldest|newest]      Default oldest-first
+       [--limit=N] [--source=bookmarks|likes|posts]
+       [--pause-on-fail] [--dry-run]
   mcp register --client=CLIENT      Wire xs-mcp into a client config
                                     (CLIENT: claude|codex|gemini)
+  topic detect                      Run community detection over Concept-RELATED_TO-Concept
+       [--synthesize]                Use Sonnet to title each topic (billed)
+       [--min-size=N]                Drop communities smaller than N (default 5)
+       [--dry-run]                   Skip vault + graph writes
+  schedule install                  Install a launchd plist that runs xs on a schedule
+       [--mode=bookmarks-sync|sync] Default: bookmarks-sync
+       [--interval=SECONDS]         Default: 3600 (1h)
+  schedule uninstall                Remove the launchd plist + bootout the agent
+       [--mode=bookmarks-sync|sync]
   review                            List entity records that need human triage
   help                              Show this message
 
 Environment:
-  XSCRAPER_VAULT      Vault directory (default: ~/Documents/x-scraper-vault)
+  XSCRAPER_VAULT      Vault directory (default: ~/x-scraper-vault)
   XSCRAPER_QUEUE      Queue SQLite path (default: ~/.config/x-scraper/queue.sqlite)
 `;
 
@@ -87,8 +116,31 @@ const runMain = async (): Promise<number> => {
     }
     case 'cost': {
       const since = args.options.get('since');
-      const result = since === undefined ? runCost(config) : runCost(config, since);
+      const byEntry = args.flags.has('by-entry');
+      const topStr = args.options.get('top');
+      const result = runCost(config, {
+        ...(since === undefined ? {} : { sinceIso: since }),
+        byEntry,
+        ...(topStr === undefined ? {} : { topN: Number(topStr) }),
+      });
       console.log(`since ${result.sinceIso}: $${result.totalUsd.toFixed(4)}`);
+      if (result.byEntry !== undefined) {
+        console.log('\nTop bookmarks by spend:');
+        for (const row of result.byEntry) {
+          console.log(`  ${row.entryId.padEnd(30)}  $${row.totalUsd.toFixed(4)}`);
+        }
+      }
+      return EXIT_OK;
+    }
+    case 'trends': {
+      const formatArg = args.options.get('format');
+      const format: 'json' | 'table' = formatArg === 'json' ? 'json' : 'table';
+      const topStr = args.options.get('top');
+      const topN = topStr === undefined ? undefined : Number(topStr);
+      await runTrends({
+        format,
+        ...(topN === undefined || Number.isNaN(topN) ? {} : { topN }),
+      });
       return EXIT_OK;
     }
     case 'doctor': {
@@ -115,6 +167,49 @@ const runMain = async (): Promise<number> => {
       );
       return EXIT_OK;
     }
+    case 'bookmarks': {
+      const sub = args.positionals[0];
+      if (sub !== 'pull' && sub !== 'sync') {
+        console.error(`xs bookmarks: unknown subcommand "${sub ?? ''}" — use 'pull' or 'sync'`);
+        return EXIT_USAGE;
+      }
+      const sourceArg = args.options.get('source');
+      if (sourceArg !== undefined && !isBookmarkSource(sourceArg)) {
+        console.error(`xs bookmarks: --source must be bookmarks|likes|posts (got ${sourceArg})`);
+        return EXIT_USAGE;
+      }
+      if (sub === 'pull') {
+        const maxStr = args.options.get('max');
+        const profileDir = args.options.get('profile-dir');
+        const result = await runBookmarksPull(config, {
+          ...(sourceArg === undefined ? {} : { source: sourceArg }),
+          ...(maxStr === undefined ? {} : { max: Number(maxStr) }),
+          ...(profileDir === undefined ? {} : { profileDir }),
+        });
+        console.log(
+          `bookmarks pull (${result.source}): fetched=${String(result.fetched)} inserted=${String(result.inserted)} unchanged=${String(result.unchanged)} skipped=${String(result.skipped)} ledger=${String(result.ledgerTotal)}`,
+        );
+        return EXIT_OK;
+      }
+      // sync
+      const orderArg = args.options.get('order') ?? 'oldest';
+      if (orderArg !== 'oldest' && orderArg !== 'newest') {
+        console.error(`xs bookmarks sync: --order must be oldest|newest (got ${orderArg})`);
+        return EXIT_USAGE;
+      }
+      const limitStr = args.options.get('limit');
+      const result = await runBookmarksSync(config, {
+        order: orderArg,
+        ...(sourceArg === undefined ? {} : { source: sourceArg }),
+        ...(limitStr === undefined ? {} : { limit: Number(limitStr) }),
+        ...(args.flags.has('pause-on-fail') ? { pauseOnFail: true } : {}),
+        ...(args.flags.has('dry-run') ? { dryRun: true } : {}),
+      });
+      console.log(
+        `bookmarks sync: attempted=${String(result.attempted)} succeeded=${String(result.succeeded)} failed=${String(result.failed)}${result.haltedOnFail ? ' (halted on fail)' : ''} cost=$${result.totalCostUsd.toFixed(4)}`,
+      );
+      return result.failed > 0 ? EXIT_FAIL : EXIT_OK;
+    }
     case 'mcp': {
       const sub = args.positionals[0];
       if (sub !== 'register') {
@@ -134,6 +229,61 @@ const runMain = async (): Promise<number> => {
       });
       console.log(
         `mcp register ${result.client}: ${result.changed ? 'wrote' : 'unchanged'} ${result.configPath}`,
+      );
+      return EXIT_OK;
+    }
+    case 'topic': {
+      const sub = args.positionals[0];
+      if (sub !== 'detect') {
+        console.error(`xs topic: unknown subcommand "${sub ?? ''}" — only 'detect' is supported`);
+        return EXIT_USAGE;
+      }
+      const minSizeStr = args.options.get('min-size');
+      const halfLifeStr = args.options.get('recency-half-life-days');
+      const halfLifeDays = halfLifeStr === undefined ? undefined : Number(halfLifeStr);
+      const result = await runTopicDetect(config, {
+        synthesize: args.flags.has('synthesize'),
+        ...(args.flags.has('dry-run') ? { dryRun: true } : {}),
+        ...(minSizeStr === undefined ? {} : { minCommunitySize: Number(minSizeStr) }),
+        ...(halfLifeDays === undefined || Number.isNaN(halfLifeDays)
+          ? {}
+          : { recencyHalfLifeDays: halfLifeDays }),
+      });
+      console.log(
+        `topic detect: nodes=${String(result.totalNodes)} edges=${String(result.totalEdges)} communities=${String(result.communitiesFound)} written=${String(result.topicsWritten)} cost=$${result.costUsd.toFixed(4)}`,
+      );
+      return EXIT_OK;
+    }
+    case 'schedule': {
+      const sub = args.positionals[0];
+      if (sub !== 'install' && sub !== 'uninstall') {
+        console.error(
+          `xs schedule: unknown subcommand "${sub ?? ''}" — use 'install' or 'uninstall'`,
+        );
+        return EXIT_USAGE;
+      }
+      const modeArg = args.options.get('mode') ?? 'bookmarks-sync';
+      if (modeArg !== 'bookmarks-sync') {
+        // 'sync' was removed: a static plist can't supply the required
+        // --urls argument, so it would fail on every interval. (Codex P2.)
+        console.error(`xs schedule: --mode must be bookmarks-sync (got ${modeArg})`);
+        return EXIT_USAGE;
+      }
+      const mode: ScheduleMode = modeArg;
+      if (sub === 'install') {
+        const intervalStr = args.options.get('interval');
+        const result = await runScheduleInstall({
+          mode,
+          ...(intervalStr === undefined ? {} : { intervalSeconds: Number(intervalStr) }),
+        });
+        console.log(
+          `schedule install (${result.mode}): ${result.loaded ? 'loaded' : 'wrote'} ${result.plistPath} every ${String(result.intervalSeconds)}s`,
+        );
+        return EXIT_OK;
+      }
+      const result = await runScheduleUninstall({ mode });
+      console.log(
+        `schedule uninstall (${result.label}): ${result.removed ? 'removed' : 'no plist found at'} ${result.plistPath}`,
       );
       return EXIT_OK;
     }

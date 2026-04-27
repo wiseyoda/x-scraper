@@ -51,7 +51,7 @@ describe('createMarkdownVault', () => {
       host_metadata: {},
     };
     const relPath = await vault.write({ frontmatter: fm, body: '# Hello\n\nbody\n' });
-    expect(relPath).toBe('sources/src_aaaa1111.md');
+    expect(relPath).toBe('sources/articles/src_aaaa1111.md');
     const back = await vault.read('src_aaaa1111', 'Source');
     expect(back.frontmatter.id).toBe('src_aaaa1111');
     expect(back.body.trim()).toBe('# Hello\n\nbody');

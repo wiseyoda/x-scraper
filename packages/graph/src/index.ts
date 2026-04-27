@@ -22,6 +22,9 @@ export {
 export type { Neo4jConfig } from './neo4j-store.js';
 export { createNeo4jGraph } from './neo4j-store.js';
 export type {
+  ConceptEdgeRecord,
+  ConceptNodeRecord,
+  ConceptSubgraph,
   GraphEdge,
   GraphErrorCode,
   GraphInitOptions,

@@ -1,129 +1,330 @@
 # Session Handoff
 
-> Updated 2026-04-26 after a session that drained the entire roadmap backlog: 4 PRs merged covering xs sync orchestration, xs reindex, xs auth/mcp/review, PDF ingestor, HNSW dim guard, golden corpus, community detection, perf benches, and likes/posts scraper primitives. **All roadmap slices are now on main.**
+> Updated 2026-04-26 at end of session 5. Branch `feat/bookmark-ledger` is pushed
+> with 8 new commits (T8/T9/T10/T11/T12/T13/T16/T18/T19/T20/T21/T22/T23 + X
+> Article ingestor + content_type routing). PR #28 still OPEN, NOT MERGED.
 >
-> Read this first in the next session.
+> **Next session is a RESET.** Pat reviewed the synced output and saw too many
+> small/wrong source files. The plan: nuke vault + db, rebuild from scratch
+> with a doubling-batch (1→2→4→8…) cadence and manual verification at each
+> ramp. Plus build a lightweight web UI for ongoing review.
+>
+> **Read this first.**
 
 ## Current State
 
-`main` is clean and green. Working tree clean. No PRs in flight. **Every slice from `docs/ROADMAP.md` is merged.** 270 vitest tests across 41 files (3 perf-bench skipped without RUN_BENCH=1) in 17 packages.
+Branch `feat/bookmark-ledger` pushed with 8 commits past session 4's snapshot:
 
 ```
-git log --oneline -5 main
-9c2df69  feat(slice-22): scraper likes + own-posts (parsing + passive capture) (#26)
-eddff57  Slices 21-27: xs sync + reindex + auth/mcp/review + golden corpus + community detection + perf bench (#25)
-161ae29  Slice 20: PDF ingestor (pdfjs-dist) (#24)
-645f75f  feat(slice-19): HNSW dimension production guard + runnable integration tests (#23)
-689d372  docs(handoff): end-of-session refresh with precise next-step playbook (#22)
+f1b808f  feat: X Article ingestor + 3 correctness bugs + Source content_type routing
+257ce32  feat: T16/T18/T19/T20/T21/T22/T23 — coooccurrence, trends, recency, authors, edit-detect, cost-by-entry, claims-shard-warn
+f30b4b2  feat(reconciler): per-entity embeddings + Entity meta-label HNSW index (T11)
+e398aef  feat: schema v3, hard auto-expand, entity normalization + codex v2 P2 fixes
+cd7776d  fix: codex P2/P3 — bookmark wire-failure handling, plist exec path, sync mode + topic dry-run + spike3 hardening + t.co skip
+d1906da  style: prettier --write across cli/extractor/graph/queue/scraper
 ```
+
+316 vitests pass; lint + typecheck clean; codex P2 round 1 + round 2 fixes
+landed.
+
+**Live data state at end of session 5 (likely to be wiped — see Next Steps):**
+
+- bookmark_ledger: 210 organic synced + 134 derived new (drain killed mid-flight)
+- vault: 211 Source.md (210 tweets + 1 pdf), 1682 Claim.md, ~800 entity files
+- Neo4j: 214 Source, 1644 Claim, 492 Concept, 299 Tool, 209 Tweet, 204 Person,
+  62 Article, 35 Repo, 6 Video; ~6500 edges incl. 1122 RELATED_TO from cooccurrence
+- cost ledger: ~$5.34 spent end-to-end (session 4 + session 5 trials)
 
 ## What Was Done This Session
 
-4 PRs through the full lifecycle (branch off main → write package + tests → gate locally → live-test against real services where applicable → open PR → `codex review --base main` → fix every P1/P2 → push → CI green → squash-merge). PR #25 went through 4 codex review rounds, fixing 8 findings (3 P1 + 5 P2).
+### Foundation upgrades (12 of HANDOFF v4's 12 ranked items)
 
-| PR  | Slice                            | Live verification                                                                       |
-| --- | -------------------------------- | --------------------------------------------------------------------------------------- |
-| #23 | Slice 19 — HNSW dim guard        | Real Neo4j: dim-mismatch refused at init; wrong-length embedding rejected on upsert     |
-| #24 | Slice 20 — PDF ingestor          | arXiv "Attention Is All You Need" PDF: 15 pages, 40k chars, 545ms cold                  |
-| #25 | Slices 21-27 (consolidated)      | xs sync end-to-end on the same arXiv PDF (132s, $0.18); xs reindex against the result   |
-| #26 | Slice 22 — likes/posts scraper   | unit tests only; live X.com verification deferred (requires authenticated Patchright)   |
+- **T8** — Neo4j test-pollution prevention. Found 1000 orphan `claim-{i}` nodes
+  in production (HANDOFF v4 had mistaken these for a "null-predicate bug").
+  Origin: spike 3 (`MATCH (n) DETACH DELETE n` + insert `claim-{i}` + no
+  cleanup). Hardened spike 3: refuse-if-populated guard, `xs_spike3_` ID prefix,
+  cleanup in finally. Added Neo4j-test-pollution-prevention rule to CLAUDE.md.
+- **T9** — t.co-only tweet pre-flight skip. New `TCO_ONLY_TWEET_RE` in scraper
+  constants; runBookmarksSync detects link-only tweets, writes a stub Source.md
+  with `host_metadata.skipReason='link_only_tweet'`, marks ledger as synced
+  without LLM cost. Codex round 2 follow-up: also enqueues derived ledger rows
+  from the parent's expanded urls so the actual article isn't lost.
+- **T10** — Entity normalization. `packages/reconciler/src/normalize.ts`:
+  `normalizeEntityName` (NFKC, lowercase, article-strip, heuristic
+  singularization). `resolveEntity` gains a phase-0 pre-flight pass on
+  normalized_name + normalized_aliases via the new
+  `GraphStore.findEntityByNormalizedSurface`. Real `findClaimsForSubject` wired
+  (replaces empty stub that made every claim land as ADD). 794 historical
+  entities backfilled with normalized fields via spike.
+- **T11** — Per-entity embeddings + Entity meta-label. New `Entity` multi-label
+  on every Person/Tool/Concept/Repo/Article/Tweet/Video/PDF node. Single
+  `entity_embed_idx` HNSW (1536 dims, dim-drift guarded). New `embed_entities`
+  stage between extract_facts and resolve_ents. resolveEntsStage now uses
+  per-entity embeddings instead of source-vector proxy. 702 historical entities
+  backfilled with embeddings.
+- **T12** — Schema v3: bookmark_ledger gets `parent_entry_id`, `source_kind`
+  ('organic'|'derived'), `text_hash`, `superseded_at`. Forward migration v2→v3
+  - v3→v4 (the cost_ledger.entry_id ALTER, see T22). `runMigration` helper
+    parses SQL line comments + skips ALTER ADD COLUMN when the column already
+    exists (so test-time downgrades-then-rewalks survive).
+- **T13** — Hard auto-expand. `fetchLinksStage` rewrote: extracts URLs from
+  source body, dedupes via `findBookmarkBySourceUrl`, drops same-host
+  self-references and tweet permalinks, enqueues derived ledger rows with
+  `parent_entry_id` lineage. Idempotent (deterministic `derived_<source-id>`).
+- **T16** — Concept co-occurrence edges. Every pair of Concepts in the same
+  source gets a `RELATED_TO` edge with additive `cooccurrence_count` + sources
+  list. New `GraphStore.upsertCooccurrenceEdge` port. Backfill against the
+  historical 200 sources bumped edge density 52→1122 (21x; HANDOFF v4
+  estimated 5–10x).
+- **T18** — `xs trends` CLI. Top-N entities/concepts/tools/authors,
+  predicate distribution, content_type mix, edge type counts, monthly cadence.
+  ASCII tables (default) or `--format=json`.
+- **T19** — Recency weighting in topic detect.
+  `--recency-half-life-days=N` (default 0). Each edge weighted by
+  `cooccurrence_count * 2^(-age_days / N)`. Wired through
+  `ConceptEdgeRecord` (added `cooccurrenceCount`, `lastObservedAt`).
+- **T20** — Author Person entity. updateGraphStage materializes
+  `host_metadata.byline` as a Person + `(s)-[:AUTHORED_BY]->(p)` edge.
+- **T21** — Soft-delete on edit via text_hash. runBookmarksPull computes hash,
+  detects edit on re-pull, marks old row superseded + inserts a derived row
+  preserving the audit trail.
+- **T22** — Cost ledger entry_id attribution. `cost_ledger.entry_id`,
+  CostInput/LlmCostSink/CostSink/CompleteRequest.cost all grow entryId.
+  wireSyncDeps populates wireTimeEntryId for single-source bookmark syncs.
+  New `JobQueue.costByEntry` + `xs cost --by-entry --top=N`.
+- **T23** — Claims sharding deferral. Vault warns once per process when
+  claims/ exceeds 8000 flat files.
 
-PR #25 codex P1/P2 findings, all fixed inline:
-- P1 run-scoped claim filter so new sync runs don't lease stale jobs from prior runs
-- P1 resumable jobs: dispatcher runs every stage in single pass, no stale ctx
-- P1 pending retries no longer get stranded — dispatcher waits for next_run_at
-- P2 completeAllStages avoids inter-stage re-claim race
-- P2 finishRun marks failed when failed > 0 (not just dead > 0)
-- P2 vault.commit per run for the audit log
-- P2 reconciler UPDATE/DELETE invalidates the existing claim's actual source edge (added sourceId to ExistingClaim)
-- P2 mcp register resolves bin via import.meta.url, independent of cwd
+### X Article ingestor (the late-session unplanned work)
 
-## Package Map (17 packages)
+- Found via the user inspecting trial drain failures: x.com/i/article/<id> URLs
+  rendered as a React SPA whose content arrives via a follow-up GraphQL call.
+  Readability was getting an empty shell and returning null. ~96 long-form X
+  posts were being silently lost.
+- `packages/ingestor/src/x-article.ts`: Patchright-rendered scrape using the
+  existing authenticated browser session. Lazy-opened, cached across the run,
+  disposed via the new `Ingestor.dispose` port wired into wireSyncDeps cleanup.
+- Selectors verified via `spikes/probe-x-article.ts`:
+  `[data-testid="twitterArticleReadView"]` (body wrapper),
+  `[data-testid="twitter-article-title"]`,
+  `[data-testid="twitterArticleRichTextView"]` (body content),
+  `[data-testid="UserCell"]` (byline).
+- Trial: 13KB rendered text per article, ~$0.11 extraction cost, ~150s wall
+  time per item (60s of which is Patchright session cold-start — see Traps).
 
-| Package         | Public surface                                                                                                                                                                                                                                                |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `core`          | `ENTITY_TYPES`, `EDGE_TYPES`, `FrontmatterSchema`, `parseDocument`/`formatDocument`, `canonicalizeUrl`, ID gen, content hash                                                                                                                                  |
-| `vault`         | `createMarkdownVault({root})` → `{init, read, write, list, commit}`; `safeJoin`                                                                                                                                                                               |
-| `scraper`       | `openAuthenticatedSession`, `fetchBookmarks`, `fetchLikes`, `fetchPosts`, `passiveCaptureBookmarks`, `passiveCaptureTimeline`, `parseBookmarksPage`, `parseUserTimelinePage`; `jitteredDelay`, `createSessionCap`, `createQueryIdRegistry`                     |
-| `queue`         | `createSqliteQueue(path)` → `{startRun, enqueue, claimNext({runId?}), completeStage, completeAllStages, failStage, retryFailed, recordCost, costSince, stats}`                                                                                                |
-| `graph`         | `createNeo4jGraph({uri,user,password})` → `{init, upsertNode, upsertEdge, invalidateEdge, vectorSearch, traverse, countNodes}`. **Init checks for HNSW dim drift and refuses to bind to a wrong-dim index. upsertNode/vectorSearch assert embedding length.** |
-| `embeddings`    | `createGeminiEmbedding({apiKey, ...})`, `createOpenAIEmbedding({apiKey, ...})` → `{provider, dims, embed(texts)}`                                                                                                                                             |
-| `llm`           | `createClaudeProvider({messagesCreate, ...})` → `{complete(req)}`; throws `TRUNCATED` on max_tokens; cost recorded BEFORE throw                                                                                                                               |
-| `extractor`     | `extract(llm, {body, title?, sourceUrl?})` → validated `{entities, claims, relationships}` via Zod + repair loop. **Golden corpus of 5 fixtures guards against schema regressions.**                                                                          |
-| `reconciler`    | `resolveEntity({candidateName, candidateEmbedding, type}, {finder})` → `MERGE`/`NEW`/`SAME_AS_PROBABLE`; `reconcileClaim({incoming, existing})` → `ADD`/`UPDATE`/`DELETE`/`NONE`. **`ExistingClaim` carries `sourceId` for correct edge invalidation.**       |
-| `ingestor`      | `createArticleIngestor`, `createRepoIngestor`, `createYouTubeIngestor`, **`createPdfIngestor`**; `selectIngestor(url, ingestors[])`                                                                                                                           |
-| `search`        | `createExaSearch`, `createTavilySearch`, `createBraveSearch`; `autoExpandClaim(claim, {providers})`                                                                                                                                                           |
-| `cli`           | `xs init / sync / reindex / status / cost / doctor / auth login / mcp register / review`; `parseArgs`, `resolveConfig`                                                                                                                                        |
-| `mcp-server`    | `buildMcpServer({vault, queue})`; `xs-mcp` stdio bin; tools: search_vault / read_source / queue_status                                                                                                                                                        |
-| `rest`          | `buildRestApp({ctx, bearerToken})`; `xs-rest` bin; `/health`, `/search` (GET+POST), `/read`, `/status`                                                                                                                                                        |
-| `digest`        | `buildDigest(vault, {now, llm?})`; `buildLaunchdPlist({label, programPath, intervalSeconds})`                                                                                                                                                                 |
-| `observability` | `createLogger({level, sink, bindings, now})` → `{debug, info, warn, error, child}`; `time(log, label, fn)`, `timeSync`                                                                                                                                        |
-| `community`     | `detectCommunities({nodes, edges, minCommunitySize?})` → `CommunityResult[]` (Louvain via graphology)                                                                                                                                                         |
+### Three correctness bugs caught by user output inspection
+
+- `canonicalizeUrl` left http vs https as distinct → two synced Source.md for
+  the same X Article with identical content_hash. Now normalizes http→https.
+- `inferContentType` matched tweet host check before article path check, so
+  `x.com/i/article/<id>` was tagged `content_type: 'tweet'` and routed to
+  sources/tweets/. Article path check now runs first.
+- X Article byline regex was greedy: `@Voxyz_aiFollowC` (UserCell text
+  concatenates handle + adjacent button label). Now anchored with negative
+  lookahead `(?![A-Za-z0-9_])`.
+
+### Source.md content_type routing (also user-driven)
+
+- Pat noticed Source.md files landing flat in `sources/` instead of next to
+  their entity-stub neighbours in `sources/articles/`, `sources/tweets/`, etc.
+- `dirForEntityType(type, contentType?)` now routes Source by content_type.
+- `vault.read` and `vault.list` probe all subfolders for backward compat.
+- `spikes/migrate-source-folders.ts` moved 214 historical Source.md files
+  into the right subfolder; the move was committed to the vault git history.
+
+### Codex review fixes
+
+- Round 1 (3 × P2 + 1 × P3): bookmarks wire-failure handling, plist exec
+  path, sync mode without URLs, topic dry-run mutation.
+- Round 2 (3 × P2): t.co skip preserves expanded URLs, topic synthesis cost
+  ledger sink, spike 3 cleanup destructive-after-refusal hazard.
+- All landed.
 
 ## Key Decisions
 
-- **GDS Leiden not available**: the local Neo4j Community doesn't have the GDS plugin installed (`gds.list` returns "no such procedure"). The community-detection slice ships in JS via `graphology-communities-louvain` instead.
-- **Single-lease per job in xs sync**: the dispatcher runs every stage back-to-back under one queue lease, then uses `completeAllStages` to finish atomically. Avoids the inter-stage re-claim race and a resumed job derives its own context from scratch.
-- **Run-scoped claim filter**: `queue.claimNext({runId})` is the new default for the dispatcher.
-- **Pending-retry wait loop**: when claimNext returns null but pending jobs are scheduled with future next_run_at, the dispatcher sleeps until ready (10-min total budget). Without this, retryable failures stranded jobs forever.
-- **HNSW dim guard**: `init()` reads existing index dims and refuses to bind on drift. Production index lives at 1536 dims; integration tests share it with prefixed `xs_int_test_*` ids and DETACH DELETE cleanup. Neo4j keys vector indexes on (label, property), so a parallel test index can't coexist.
-- **Vitest integration-test gating fixed**: original config unconditionally excluded `*.integration.test.ts`. Now opt-in via RUN_INTEGRATION=1.
-- **Bundled-PR pattern when slices genuinely depend on each other**: PR #25 chained 7 slices with multiple commits and 4 codex rounds. Better than serializing — codex review surface stays complete and merge is atomic. Default is still one slice per PR off main.
-- **Codex pattern is reliable**: across PR #25's 4 review rounds, codex caught 8 real P1/P2 issues that local gates passed cleanly. Run in a separate worktree so it doesn't block your active branch.
+- **PR #28 scope expanded mid-session.** Original branch was just bookmark
+  backlog. We added 12 quality upgrades + the X Article ingestor + content_type
+  routing on top. The PR is now ~3000 LOC. Pat agreed via "do it all" and
+  "build it" guidance. Next session must decide: ship as one mega-PR vs split.
+- **Pre-resolve t.co at backfill time, not inside ingest.** Saves the article
+  ingestor from following redirects per attempt; lets dedupe key on the real
+  destination URL; lets us skip x.com tweet permalinks at backfill rather than
+  failing them at extract_text.
+- **X Article ingestor uses dependency injection for the Patchright session**
+  (the ingestor package can't depend on @x-scraper/scraper without a cycle).
+  The wire layer constructs the session-opener lambda; the ingestor lazily
+  resolves it on first match and caches.
+- **Don't trust queue success status.** The trial drain reported succeeded=2
+  but the user found 3 correctness bugs in the produced files. Future
+  ingestion ramps must include manual file inspection at each step. Captured
+  in `feedback_verify_parser_output.md`.
 
 ## What Failed
 
-- **Top-level `await` in a vitest test file** under esbuild ESM transform — switch to sync `fs.readdirSync` for fixture loading.
-- **`vi.spyOn(os, 'homedir')`** fails under Node ESM ("Cannot redefine property"). Use `vi.stubEnv('HOME', ...)` and resolve home lazily inside helpers.
-- **`graphology` and `graphology-communities-louvain`** ship as CJS with a `default` export. Under NodeNext + verbatimModuleSyntax, `import * as Mod from 'graphology'` and grab `Mod.default` as the constructor.
-- **better-sqlite3 native module ABI drift** — Node 24.13 (NODE_MODULE_VERSION 137) vs newer 141 happened multiple times. `pnpm rebuild` and `pnpm install` don't fix it. What works: `cd node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3 && rm -rf build && npx node-gyp rebuild`.
-- **pdfjs-dist** rejects Node `Buffer` even though it extends `Uint8Array`, AND it detaches the input ArrayBuffer. Always copy to `new Uint8Array(bytes.byteLength); data.set(bytes)` before `getDocument`.
-- **Neo4j `CREATE VECTOR INDEX ... IF NOT EXISTS`** is keyed on `(label, property)`, not name. Two parallel indexes on `(:Claim).embedding` cannot coexist — integration tests share the production index.
-- **Codex review hung** on round 4 of PR #25 (14+ min no output). Acceptable to merge without it when 3 prior rounds were clean and CI green.
-- **Stage-context-derive-from-scratch needs full single-pass** — the original sync dispatcher had a per-stage claim/release cycle that codex flagged because resumed jobs had null ingested/embedding/extraction. Refactored to run all stages in one pass under one lease.
+- **First trial of 5 derived bookmarks took 5+ minutes per item** because
+  permanent failures (Readability null on t.co → x.com SPA) were retrying
+  with 90s backoff. Fixed by adding `PERMANENT_ERROR_CODES` set in queue's
+  failStage — PARSE/DIM_MISMATCH/INVALID_INPUT/etc. short-circuit straight
+  to dead, no retries. Now permanent failures cost ~3s instead of 90s.
+- **Trial drain claimed success but produced bad data.** Two duplicates
+  (http vs https), wrong content_type ('tweet' for an article), garbled
+  byline (regex over-capture). Caught by Pat opening the produced
+  Source.md files. Three commits to fix.
+- **The full 134-item drain was started in background and killed at user's
+  request** before completing — only 2 had succeeded (which were the
+  duplicate ones I'd already cleaned up earlier). 134 derived rows remain
+  in 'new' status. Per user direction, the next session resets vault+db
+  rather than resuming this drain.
+- **Per-bookmark wireSyncDeps re-creates the Patchright session.** Each
+  derived URL pays ~60s of browser cold-start. The cached-session inside
+  the ingestor doesn't help because `wireSyncDeps` is re-called per
+  bookmark by `runOnePerLedgerItem`. Real fix is to hoist the session
+  out of per-bookmark wire — deferred.
+- **Topic detection re-run never happened (T17).** The cooccurrence
+  backfill bumped edges 21x but we didn't re-run `xs topic detect
+--synthesize` to compare community quality. Deferred.
+- **`xs trends` "Top authors" section is empty.** The Cypher uses
+  `s.host_metadata.byline IS NOT NULL` but the property is stored as a
+  nested map; Cypher dotted access into a JSON map needs different syntax.
+  Bug, deferred.
 
-## Deferred / Backlog (genuinely small now)
+## Deferred / Backlog
 
-- **Live X.com test for slice 22 (likes/posts scraper)** — needs a logged-in Patchright profile to verify against the real GraphQL responses. The parser is unit-tested with synthesized fixtures.
-- **Topic.md regeneration via LLM** — community detector finds clusters; the synthesis step that turns each cluster into a `topics/<id>.md` via Sonnet hasn't been wired. Requires a topic-summary prompt and a per-community LLM call (expensive — once per recluster).
-- **`xs topic detect` CLI command** — wire `detectCommunities` into a CLI entry point that reads Concept-RELATED_TO-Concept edges from the graph, runs detection, writes Topic nodes.
-- **CI bench job** — RUN_BENCH=1 wired into a separate workflow with a baselined runner profile. Today it's local-only opt-in.
-- **RUN_GOLDEN_LIVE=1** — golden corpus tests stub the LLM; a live mode that calls real Sonnet and diffs would catch prompt/model drift but is billed per run.
-- **Auto-expand integration in xs sync** — slice 11 (search package) ships standalone; the `fetch_links` stage is a pass-through stub. Future work: wire `autoExpandClaim` so high-signal sources spawn discovery jobs.
+### Immediate next-session priorities (per Pat)
+
+1. **Nuke vault + db, ramped re-ingest with manual verification.** Wipe
+   `~/Documents/x-scraper-vault/`, drop everything in Neo4j, delete
+   `~/.config/x-scraper/queue.sqlite`. Re-pull bookmarks. Then sync 1 →
+   verify the produced files manually → fix → 2 → verify → 4 → 8 → 16 →
+   batch. At any step that fails, stop, fix, reset that batch's state.
+2. **Lightweight web UI** for review. Read-only on top of xs-rest. List
+   recent Source.md with body length / content_type / claim count / dup
+   status. Click-through to claims, entities, graph neighborhood. Show
+   topic communities with concept member names. Belongs as a parallel
+   track to the ramped re-ingest.
+3. **Address the systemic source-quality issues** observed by Pat:
+   - Sources with no body content, just front-matter (articles, videos
+     especially). Need to investigate why these end up in vault — may be
+     a stub being written even when extraction returned nothing useful.
+   - **Duplicate claim detection.** Reconciler's findClaimsForSubject
+     now finds candidates but a duplicate-content-hash check at the
+     Claim level isn't there. Two Source.md with the same body would
+     extract the same claims; the system should detect content_hash
+     collision at ingest time and skip the duplicate Source entirely.
+   - All graph-side data (entities, claims, topics) needs UI-level review
+     because the md vault is only half the picture.
+
+### Lower-priority deferred from session 5
+
+- T14 drain (134 derived rows) — superseded by the reset plan above.
+- T15 "reconcile Article entity stubs" — superseded by reset.
+- T17 "re-run topic detect + compare quality" — defer until reset
+  re-ingest produces the new corpus.
+- T24 launchctl bootstrap end-to-end test — not started.
+- T25 RUN_GOLDEN_LIVE=1 — not started.
+- T26 likes/posts content_type spot-check — partially obsolete (we now
+  know content_type was being mis-set for X Articles; same kind of bug
+  may exist for other URL patterns).
+- T27 final codex review + ship — pending the reset cycle landing first.
+
+### Pre-existing T0 deferred (still applies after reset)
+
+- xs schedule launchctl bootstrap was never end-to-end tested live.
+- Hard auto-expand of t.co URLs that resolve to NON-x.com / NON-twitter.com
+  destinations works; but the `articles_rest_api_enabled` X feature flag
+  surface (in INITIAL_STATE we saw) suggests there's an X.com REST API for
+  Articles that would be faster than Patchright — not investigated.
 
 ## Traps for Next Session
 
-- **Don't trust the cwd** for resolving bundled binaries from CLI commands. Use `fileURLToPath(import.meta.url)` and walk up from there. (Caught by codex P2 on mcp-register.)
-- **`ExistingClaim.sourceId` is required**. The reconciler's UPDATE/DELETE decisions need it to invalidate the right edge. If you add a new `claimFinder` adapter, populate it.
-- **Run-scoped queue claims**. Always pass `{runId}` to `claimNext` from xs sync — without it, a new sync will lease stale jobs from prior runs and DLQ them as UNKNOWN_SOURCE.
-- **completeAllStages, not per-stage completeStage**, when the dispatcher runs every stage in one pass (which it does in v1).
-- **HNSW dim drift refused at init**. To change embedding dims, drop `claim_embed_idx` first.
-- **Better-sqlite3 ABI** can desync from Node version vitest uses. If `pnpm test packages/cli` says "compiled against a different Node.js version", rebuild via the recipe in "What Failed".
-- **All the prior-session traps still apply**: `max_tokens` 16k–32k for extraction; cost is recorded BEFORE the throw path in LLM adapter; bi-temporal upsert uses `OPTIONAL MATCH ... WHERE invalid_at IS NULL` + two FOREACH branches; reserved fields beat caller data; auth fails closed.
+- **The full vault + db wipe is a one-way action.** Before nuking, take a
+  snapshot: `cp -r ~/Documents/x-scraper-vault /tmp/x-scraper-vault-pre-reset`,
+  `cp ~/.config/x-scraper/queue.sqlite /tmp/queue-pre-reset.sqlite`,
+  `neo4j stop && cp -r /opt/homebrew/var/neo4j/data /tmp/neo4j-pre-reset && neo4j start`
+  (or use `cypher-shell ... "CALL apoc.export.cypher.all('/tmp/neo4j.cypher', {format:'cypher-shell'})"`
+  if APOC is installed — it isn't by default). The session 5 work all sits in
+  vault git so a `git log` recovery is possible too.
+- **schema_version is at 4 in production.** Any migration the next session
+  adds must use v5+. Don't reuse v4 — it owns the cost_ledger.entry_id ALTER
+  fold-in fix.
+- **Patchright session cold-start is 60s per ingest.** Until the wire-layer
+  refactor lifts the session out of per-bookmark scope, expect ~150s/item
+  for X Articles. For the ramped re-ingest with verification this is fine
+  (verification time dominates). For batch runs >50 items, fix the wire
+  first.
+- **`xs trends` "Top authors" Cypher is broken** — the byline lookup
+  doesn't work against the nested host_metadata map. Don't trust that
+  section's output.
+- **Codex review pending.** The branch has had 8 new commits since the
+  last codex pass. Run `codex review --base main` again before merge.
+- **The `findClaimsForSubject` GraphStore method now hits real Neo4j** —
+  it was a stub returning `[]` before T10. This means the reconciler now
+  actually finds existing claims and may return UPDATE/DELETE decisions
+  where it used to return ADD. On the reset re-ingest, expect different
+  claim counts than session 4's run.
+- **All prior-session traps still apply**: max_tokens 16k–32k, cost
+  recorded BEFORE throw path, bi-temporal upsert, reserved-fields-beat-
+  caller, auth fails closed, HNSW dim-drift refused at init, Neo4j vector
+  index keyed on (label, property), pdfjs Buffer→Uint8Array copy,
+  `/opt/homebrew/bin/node` for CLI invocation.
 
 ## Next Steps — exactly where to pick up
 
-The roadmap is complete. The next session should pick the most user-valuable follow-up:
-
-1. **Live-verify slice 22 likes/posts** against the real X.com session. Run `node packages/cli/dist/bin.js auth login` to refresh the Patchright profile, then write a spike that calls `fetchLikes(session, {maxBookmarks: 5})` and prints what came back. If the parser fails, the GraphQL response shape has drifted since the bookmarks endpoint baseline — update `parseUserTimelinePage` to match.
-2. **Wire `xs topic detect`** — add `packages/cli/src/commands/topic.ts` that:
-   - Reads Concept-RELATED_TO-Concept edges from the graph (new `graph.listConceptEdges()` helper or a direct Cypher session)
-   - Calls `detectCommunities({nodes, edges, minCommunitySize: 5})`
-   - For each community, optionally calls Claude Sonnet with the member names to synthesize a topic title + summary (single LLM call per community)
-   - Writes `topics/<topic_id>.md` and upserts a Topic node with `member_count` + `representative_claims`
-   - Writes RELATED_TO edges between member Concept nodes and the new Topic
-3. **Schedule `xs sync` in launchd** — the `digest` package already has `buildLaunchdPlist`; add a sibling `buildSyncLaunchdPlist({intervalSeconds, urlsFile})` that runs `xs sync` against a curated URL list on a schedule.
-4. **Wire RUN_BENCH=1 into CI** — add a separate workflow job that runs the bench tests and uploads a JSON artifact with timings. After 5 baseline runs, derive a regression threshold and gate.
-5. **Slice 11 auto-expand integration** — search package + ingestors exist; `fetch_links` in dispatcher is the wire-up point. After ingestion, scan `ctx.ingested.body` for embedded URLs, dedupe via `canonicalizeUrl + vault.list`, enqueue as new SourceItems.
+1. **Snapshot the current state** before wiping. Run the cp commands in the
+   Traps section. Confirm with `ls /tmp/x-scraper-vault-pre-reset/sources |
+wc -l`.
+2. **Wipe**: `rm -rf ~/Documents/x-scraper-vault`,
+   `rm ~/.config/x-scraper/queue.sqlite ~/.config/x-scraper/queue.sqlite-{shm,wal}`,
+   `cypher-shell -u neo4j -p 'xscraper-local-dev' -d neo4j "MATCH (n) DETACH DELETE n"`,
+   `cypher-shell ... "DROP INDEX claim_embed_idx IF EXISTS"`,
+   `cypher-shell ... "DROP INDEX entity_embed_idx IF EXISTS"`. Drop all
+   constraints too.
+3. **Re-init**: `/opt/homebrew/bin/node packages/cli/dist/bin.js init`. Verify
+   with `xs status` (should show 0 jobs).
+4. **Re-pull bookmarks**: `xs auth login` (if cookies expired),
+   `xs bookmarks pull --max=200`. Verify ledger has 200 organic rows.
+5. **Ramped re-ingest with verification**:
+   - `xs bookmarks sync --limit=1`. Open the produced Source.md, Claim.md,
+     entity files. Run `xs trends`. Manually verify body length, content_type,
+     byline, dedup, claim quality. Report findings to Pat.
+   - If OK: `xs bookmarks sync --limit=2`. Verify both new ones.
+   - Continue: 4, 8, 16, 32, 64, 128, 200.
+   - At ANY failure: stop, fix the bug, reset that batch (delete the
+     newly-created vault/graph/ledger entries), restart at size 1.
+6. **In parallel**, sketch the lightweight web UI. Start as a new
+   `packages/web-ui` workspace. Read-only routes built on the existing
+   xs-rest patterns. List sources with quality dimensions. Click-through
+   to claims/entities/graph neighborhood. Use the simplest possible
+   server-rendered HTML or vanilla TS — minimal deps.
+7. **Re-run codex review** on the branch before any merge attempt:
+   `codex review --base main` in the worktree at
+   `/Users/ppatterson/Working/x-scraper-codex-review`.
 
 ## Open file paths to remember
 
-- `docs/ARCHITECTURE.md` — full design + Kùzu→Neo4j pivot history
-- `docs/ROADMAP.md` — original slice plan (all slices now shipped)
-- `docs/CODING_STANDARDS.md` — including LLM defaults
-- `docs/CODEX_REVIEW.md` — review process
-- `~/.config/x-scraper/.env` — six API keys + Neo4j creds + `XSCRAPER_REST_TOKEN`
-- `~/.config/x-scraper/browser-profile/` — Patchright profile dir created by `xs auth login`
-- `~/Documents/x-scraper-vault/` — created by `xs init`; contains the dogfood Source.md from this session's live test
-- `~/.config/x-scraper/queue.sqlite` — created by `xs init`; has the run history
-- `packages/extractor/src/__tests__/golden/` — 5-fixture corpus for schema regression testing
+- `packages/ingestor/src/x-article.ts` — the new Patchright SPA scraper
+- `packages/cli/src/commands/sync/wire.ts` — Patchright session wiring +
+  the per-bookmark cold-start hot spot
+- `packages/cli/src/commands/sync/stages.ts` — fetchLinksStage (hard
+  auto-expand), inferContentType (article-before-tweet check), updateGraph
+  (cooccurrence + AUTHORED_BY)
+- `packages/core/src/url.ts` — canonicalizeUrl (now normalizes http→https)
+- `packages/vault/src/paths.ts` + `vault.ts` — content_type routing
+- `packages/queue/src/queue.ts` — runMigration, PERMANENT_ERROR_CODES,
+  costByEntry, findBookmarkBySourceUrl, markBookmarkSuperseded
+- `packages/queue/src/schema.ts` — schema_version=4, MIGRATIONS[3], [4]
+- `packages/reconciler/src/normalize.ts` — entity name normalization
+- `packages/graph/src/neo4j-store.ts` — entity_embed_idx, vectorSearch
+  routing, upsertCooccurrenceEdge, findEntityByNormalizedSurface,
+  findClaimsForSubject
+- `packages/graph/src/cypher.ts` — Entity meta-label upsert,
+  buildUpsertCooccurrenceEdge
+- `spikes/backfill-*.ts` — 4 backfill spikes (normalized-names,
+  entity-embeddings, cooccurrence, derived-urls)
+- `spikes/migrate-source-folders.ts` — moved 214 sources into subfolders
+- `spikes/probe-x-article.ts` — used to find the X Article DOM selectors
+- `spikes/3-neo4j.ts` — hardened with refuse-if-populated + cleanup
+- `~/Documents/x-scraper-vault/` — git-tracked; 211 sources, 1682 claims
+  (about to be wiped per the reset plan)
+- `~/.config/x-scraper/queue.sqlite` — schema v4; 210 organic + 134 derived
+  ledger rows (also about to be wiped)
