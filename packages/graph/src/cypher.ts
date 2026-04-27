@@ -44,18 +44,40 @@ OPTIONS { indexConfig: {
 }}`;
 };
 
+// Source/Claim/Topic stay as their own primary label; everything else
+// (Person/Tool/Concept/Repo/Article/Tweet/Video/PDF) gets the meta-label
+// `Entity` so a single entity_embed_idx covers them all. The multi-label
+// is added on CREATE — existing nodes need a backfill SET to acquire it.
+const ENTITY_META_TYPES: ReadonlySet<EntityType> = new Set<EntityType>([
+  'Person',
+  'Tool',
+  'Concept',
+  'Repo',
+  'Article',
+  'Tweet',
+  'Video',
+  'PDF',
+]);
+
+// MERGE only accepts a single label; the secondary :Entity label is
+// added via SET in the same statement (see setMetaLabel below).
+const labelClauseForUpsert = (label: EntityType): string => label;
+
+const setMetaLabel = (label: EntityType): string =>
+  ENTITY_META_TYPES.has(label) ? ', n:Entity' : '';
+
 export const buildUpsertNode = (label: EntityType): string => {
   assertValidLabel(label);
-  return `MERGE (n:${label} { id: $id })
-ON CREATE SET n += $props
-ON MATCH SET n += $props`;
+  return `MERGE (n:${labelClauseForUpsert(label)} { id: $id })
+ON CREATE SET n += $props${setMetaLabel(label)}
+ON MATCH SET n += $props${setMetaLabel(label)}`;
 };
 
 export const buildUpsertNodeWithEmbedding = (label: EntityType): string => {
   assertValidLabel(label);
-  return `MERGE (n:${label} { id: $id })
-ON CREATE SET n += $props, n.embedding = $embedding
-ON MATCH SET n += $props, n.embedding = $embedding`;
+  return `MERGE (n:${labelClauseForUpsert(label)} { id: $id })
+ON CREATE SET n += $props, n.embedding = $embedding${setMetaLabel(label)}
+ON MATCH SET n += $props, n.embedding = $embedding${setMetaLabel(label)}`;
 };
 
 export const buildUpsertEdge = (edgeType: EdgeType): string => {

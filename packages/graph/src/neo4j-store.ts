@@ -18,6 +18,8 @@ import {
   DEFAULT_AWAIT_INDEXES_SECONDS,
   DEFAULT_EMBED_DIMS,
   DEFAULT_SIMILARITY,
+  ENTITY_VECTOR_INDEX_NAME,
+  ENTITY_VECTOR_PROP,
   ID_CONSTRAINTS,
   VECTOR_INDEX_NAME,
 } from './constants.js';
@@ -110,6 +112,29 @@ export const createNeo4jGraph = (config: Neo4jConfig): GraphStore => {
       await session.run(
         buildVectorIndex(VECTOR_INDEX_NAME, 'Claim', VECTOR_INDEX_PROP, dims, DEFAULT_SIMILARITY),
       );
+      // Same drift-guard for the entity vector index. Both indexes share
+      // dims since the same Gemini model produces both Claim and Entity
+      // embeddings; if production has the entity index at different
+      // dims something has been hand-edited and we refuse to bind.
+      const existingEntityDims = await readExistingIndexDims(session, ENTITY_VECTOR_INDEX_NAME);
+      if (existingEntityDims !== undefined && existingEntityDims !== dims) {
+        throw new GraphError(
+          `vector index ${ENTITY_VECTOR_INDEX_NAME} already exists at ${existingEntityDims.toString()} dims; refusing to use it for ${dims.toString()}-dim embeddings. Drop the index or pick a new one.`,
+          'DIM_MISMATCH',
+        );
+      }
+      // Single index across the Entity meta-label covers Person/Tool/
+      // Concept/Repo/Article/Tweet/Video/PDF — see ENTITY_META_TYPES in
+      // cypher.ts. The reconciler's vector ER passes the type label so
+      // we filter results post-retrieval to the right kind.
+      await session.run(
+        `CREATE VECTOR INDEX ${ENTITY_VECTOR_INDEX_NAME} IF NOT EXISTS
+         FOR (n:Entity) ON (n.${ENTITY_VECTOR_PROP})
+         OPTIONS { indexConfig: {
+           \`vector.dimensions\`: ${dims.toString()},
+           \`vector.similarity_function\`: '${DEFAULT_SIMILARITY}'
+         }}`,
+      );
       // Block until every newly-created index is ONLINE. Without this, a
       // cold-start init() can return while the vector index is POPULATING
       // and an immediate vectorSearch() will fail.
@@ -133,7 +158,9 @@ export const createNeo4jGraph = (config: Neo4jConfig): GraphStore => {
   };
 
   const upsertNode = async (node: GraphNode): Promise<void> => {
-    if (node.embedding !== undefined && node.type === 'Claim') {
+    // Both Claim and Entity-meta nodes hit a vector index — assert dims
+    // on either path. Source/Topic carry no embedding.
+    if (node.embedding !== undefined) {
       assertDims(`upsertNode(${node.id})`, node.embedding);
     }
     await withSession(async (session) => {
@@ -185,13 +212,32 @@ export const createNeo4jGraph = (config: Neo4jConfig): GraphStore => {
     embedding: number[],
     k: number,
   ): Promise<VectorHit[]> => {
-    if (label !== 'Claim') {
-      throw new GraphError(
-        `vectorSearch only supported on Claim today (got ${label})`,
-        'INVALID_INPUT',
-      );
-    }
     assertDims('vectorSearch', embedding);
+    if (label === 'Source' || label === 'Topic') {
+      // Source/Topic don't carry embeddings — empty result lets resolver
+      // fall through to NEW. (Source ER doesn't apply; URLs are the
+      // natural key.) (Topic ER not used; communities derive deterministic ids.)
+      return [];
+    }
+    if (label !== 'Claim') {
+      // Entity-meta path: query the entity HNSW index, filter results
+      // post-retrieval to the requested type label so the score still
+      // reflects same-type similarity.
+      return await withSession(async (session) => {
+        const result = await session.run(
+          `CALL db.index.vector.queryNodes($index, $k, $embedding)
+           YIELD node, score
+           WHERE $label IN labels(node)
+           RETURN node.id AS id, score
+           LIMIT $k`,
+          { index: ENTITY_VECTOR_INDEX_NAME, k: neoIntFromNumber(k), embedding, label },
+        );
+        return result.records.map((r) => ({
+          id: r.get('id') as string,
+          score: r.get('score') as number,
+        }));
+      });
+    }
     return await withSession(async (session) => {
       const result = await session.run(buildVectorSearch(VECTOR_INDEX_NAME), {
         index: VECTOR_INDEX_NAME,

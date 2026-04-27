@@ -194,6 +194,7 @@ describe('runSync', () => {
       'extract_text',
       'embed_source',
       'extract_facts',
+      'embed_entities',
       'resolve_ents',
       'reconcile',
       'write_vault',

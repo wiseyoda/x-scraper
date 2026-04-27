@@ -67,6 +67,18 @@ describe('buildUpsertNode', () => {
     const sql = buildUpsertNodeWithEmbedding('Claim');
     expect(sql).toContain('n.embedding = $embedding');
   });
+
+  it('adds the Entity meta-label for user-facing entity types', () => {
+    const sql = buildUpsertNode('Concept');
+    expect(sql).toContain('MERGE (n:Concept { id: $id })');
+    expect(sql).toContain('n:Entity');
+  });
+
+  it('does not add the Entity meta-label for Source/Claim/Topic', () => {
+    expect(buildUpsertNode('Source')).not.toContain('n:Entity');
+    expect(buildUpsertNode('Claim')).not.toContain('n:Entity');
+    expect(buildUpsertNode('Topic')).not.toContain('n:Entity');
+  });
 });
 
 describe('buildUpsertEdge', () => {

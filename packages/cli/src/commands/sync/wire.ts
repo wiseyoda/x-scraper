@@ -122,11 +122,10 @@ export const wireSyncDeps = async (
 
   const erFinder: ErCandidateFinder = {
     findCandidates: async (type, embedding, k) => {
-      // Vector search is Claim-only today; for non-Claim entity types we
-      // fall back to "no candidates", which makes the resolver default to
-      // NEW. Slice 8 will add per-entity-type vector indexes.
-      if (type !== 'Claim') return [];
-      return graph.vectorSearch('Claim', embedding, k);
+      // Source/Topic/Claim hit different indexes (Source/Topic have no
+      // ER; Claim uses claim_embed_idx); everything else hits
+      // entity_embed_idx via the Entity meta-label.
+      return graph.vectorSearch(type, embedding, k);
     },
     findByNormalizedSurface: (type, surfaces) =>
       graph.findEntityByNormalizedSurface(type, surfaces),

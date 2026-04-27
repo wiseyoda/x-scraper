@@ -135,6 +135,11 @@ export interface JobContext {
     }[];
     relationships: { from: string; to: string; type: string }[];
   } | null;
+  /** Per-entity embeddings keyed by the extractor's local entity id.
+   *  Computed by the embed_entities stage and consumed by resolve_ents.
+   *  Empty when extraction emitted no embeddable entities (e.g. a source
+   *  with only Source/Topic/Claim entries). */
+  entityEmbeddings: Map<string, number[]>;
   /** Resolved entity decisions: client id → final graph id. */
   entityResolutions: Map<
     string,

@@ -209,6 +209,39 @@ export const extractFactsStage = async (deps: SyncDeps, ctx: JobContext): Promis
   };
 };
 
+/**
+ * Embed each unique entity name extracted from the source. Stored in
+ * ctx.entityEmbeddings keyed by the extractor's local entity id. The
+ * resolve_ents stage then uses these (rather than the source embedding)
+ * for the HNSW vector ER, dramatically improving entity dedup quality.
+ *
+ * Skip Source/Topic/Claim — those don't go through entity ER.
+ */
+export const embedEntitiesStage = async (deps: SyncDeps, ctx: JobContext): Promise<void> => {
+  if (ctx.extraction === null) {
+    throw new Error('embed_entities: missing extraction');
+  }
+  // Filter to user-facing entity types and dedupe by id.
+  const targets = ctx.extraction.entities.filter(
+    (e) => e.type !== 'Source' && e.type !== 'Topic' && e.type !== 'Claim',
+  );
+  if (targets.length === 0) {
+    return;
+  }
+  const result = await deps.embeddings.embed(targets.map((e) => e.name));
+  if (result.vectors.length !== targets.length) {
+    throw new Error(
+      `embed_entities: provider returned ${result.vectors.length.toString()} vectors for ${targets.length.toString()} entities`,
+    );
+  }
+  for (let i = 0; i < targets.length; i += 1) {
+    const entity = targets[i];
+    const vec = result.vectors[i];
+    if (entity === undefined || vec === undefined) continue;
+    ctx.entityEmbeddings.set(entity.id, vec);
+  }
+};
+
 export const resolveEntsStage = async (deps: SyncDeps, ctx: JobContext): Promise<void> => {
   if (ctx.extraction === null) {
     throw new Error('resolve_ents: missing extraction');
@@ -216,15 +249,16 @@ export const resolveEntsStage = async (deps: SyncDeps, ctx: JobContext): Promise
   if (ctx.embedding === null) {
     throw new Error('resolve_ents: missing source embedding');
   }
-  // Use the source embedding for every entity: the source-vector locality
-  // is a usable proxy when we don't yet have per-entity embeddings. A
-  // future slice can swap in per-entity embeddings via a second embed call.
+  // Use per-entity embeddings when embed_entities ran (real entity ER);
+  // fall back to the source embedding for entities we didn't embed
+  // (e.g. Topic/Claim/Source surfacing through the extractor).
   for (const entity of ctx.extraction.entities) {
+    const candidateEmbedding = ctx.entityEmbeddings.get(entity.id) ?? ctx.embedding;
     const judgement = await resolveEntity(
       {
         candidateName: entity.name,
         candidateAliases: entity.aliases,
-        candidateEmbedding: ctx.embedding,
+        candidateEmbedding,
         type: entity.type,
       },
       { finder: deps.erFinder },
@@ -366,6 +400,11 @@ export const updateGraphStage = async (deps: SyncDeps, ctx: JobContext): Promise
     // misses). Computed at write time; queryable indexed.
     const normalizedName = normalizeEntityName(entity.name);
     const normalizedAliases = normalizedSurfaceForms('', entity.aliases);
+    // Per-entity embedding from embed_entities lets entity_embed_idx
+    // serve real entity-level vector ER on subsequent ingests; without
+    // it the reconciler would still be falling back to source-vector
+    // proxy similarity.
+    const entityEmbedding = ctx.entityEmbeddings.get(entity.id);
     await deps.graph.upsertNode({
       id: resolution.graphId,
       type: entity.type,
@@ -375,6 +414,7 @@ export const updateGraphStage = async (deps: SyncDeps, ctx: JobContext): Promise
         normalized_name: normalizedName,
         normalized_aliases: normalizedAliases,
       },
+      ...(entityEmbedding === undefined ? {} : { embedding: entityEmbedding }),
     });
     await deps.graph.upsertEdge({
       from: resolution.graphId,
@@ -474,6 +514,7 @@ const STAGE_HANDLERS: Record<Stage, (deps: SyncDeps, ctx: JobContext) => Promise
   extract_text: extractTextStage,
   embed_source: embedSourceStage,
   extract_facts: extractFactsStage,
+  embed_entities: embedEntitiesStage,
   resolve_ents: resolveEntsStage,
   reconcile: reconcileStage,
   write_vault: writeVaultStage,
