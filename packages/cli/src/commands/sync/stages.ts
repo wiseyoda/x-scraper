@@ -194,6 +194,36 @@ export const embedSourceStage = async (deps: SyncDeps, ctx: JobContext): Promise
   ctx.embedding = first;
 };
 
+/**
+ * Map a source's content_type to the entity type that would represent
+ * the same artifact. When the LLM extracts that entity from a source
+ * we're already ingesting AS that artifact, the entity stub is
+ * self-referential — same content, same id, but with an empty body.
+ * Filter these out so the Source.md is the single canonical record.
+ */
+const SELF_REF_ENTITY_TYPE: Record<string, string> = {
+  article: 'Article',
+  pdf: 'PDF',
+  tweet: 'Tweet',
+  video: 'Video',
+  repo: 'Repo',
+};
+
+const isSelfReferentialEntity = (
+  entity: { type: string; name: string },
+  contentType: string,
+  sourceTitle: string | null,
+): boolean => {
+  const expectedType = SELF_REF_ENTITY_TYPE[contentType];
+  if (expectedType === undefined || entity.type !== expectedType) return false;
+  if (sourceTitle === null || sourceTitle.length === 0) return false;
+  // Compare on normalized form so trivial whitespace/case differences
+  // between the LLM's restatement and the rendered title don't make us
+  // miss the self-reference. Both go through normalizeEntityName which
+  // does NFKC + lowercase + article-strip.
+  return normalizeEntityName(entity.name) === normalizeEntityName(sourceTitle);
+};
+
 export const extractFactsStage = async (deps: SyncDeps, ctx: JobContext): Promise<void> => {
   if (ctx.ingested === null) {
     throw new Error('extract_facts: missing ingested body');
@@ -208,19 +238,39 @@ export const extractFactsStage = async (deps: SyncDeps, ctx: JobContext): Promis
       ...(ctx.source.entryId === undefined ? {} : { entryId: ctx.source.entryId }),
     },
   });
+  // Drop self-referential entities (e.g. an Article entity whose name
+  // matches the source's title when content_type is 'article'). Drop
+  // any relationship that references the dropped entity too, so the
+  // graph stage doesn't try to draw an edge to a missing node.
+  const droppedEntityIds = new Set<string>();
+  const keptEntities = result.data.entities.filter((e) => {
+    if (
+      isSelfReferentialEntity(
+        { type: e.type, name: e.name },
+        ctx.ingested?.contentType ?? '',
+        ctx.ingested?.title ?? null,
+      )
+    ) {
+      droppedEntityIds.add(e.id);
+      return false;
+    }
+    return true;
+  });
   ctx.extraction = {
-    entities: result.data.entities.map((e) => ({
+    entities: keptEntities.map((e) => ({
       id: e.id,
       type: e.type,
       name: e.name,
       aliases: e.aliases,
     })),
     claims: result.data.claims,
-    relationships: result.data.relationships.map((r) => ({
-      from: r.from,
-      to: r.to,
-      type: r.type,
-    })),
+    relationships: result.data.relationships
+      .filter((r) => !droppedEntityIds.has(r.from) && !droppedEntityIds.has(r.to))
+      .map((r) => ({
+        from: r.from,
+        to: r.to,
+        type: r.type,
+      })),
   };
 };
 

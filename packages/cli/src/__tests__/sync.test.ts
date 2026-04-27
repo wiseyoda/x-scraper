@@ -406,6 +406,102 @@ describe('runSync', () => {
     expect(after.length).toBe(3);
   });
 
+  it('drops self-referential Article entity (same name as the source title)', async () => {
+    // The LLM commonly extracts an Article entity for the article being
+    // ingested, with a name that matches the source's title. Without
+    // a filter we'd end up with both src_*.md (the canonical Source)
+    // and a near-empty art_*.md stub for the same artifact. Filter
+    // them out at extract_facts so the vault and graph stay clean.
+    const selfRefExtraction = JSON.stringify({
+      entities: [
+        { id: 'art_self', type: 'Article', name: 'Title For X', aliases: [] },
+        { id: 'tool_other', type: 'Tool', name: 'Vercel', aliases: [] },
+      ],
+      claims: [],
+      relationships: [{ from: 'art_self', to: 'tool_other', type: 'MENTIONED_IN' }],
+    });
+    const articleIngestor: Ingestor = {
+      kind: 'article',
+      matches: () => true,
+      ingest: (url) =>
+        Promise.resolve({
+          url,
+          kind: 'article',
+          title: 'Title For X',
+          body: 'Body that satisfies any minimum length requirement at all times.',
+          byline: null,
+          capturedAt: '2026-04-26T00:00:00.000Z',
+          metadata: {},
+        }),
+    };
+    const sources: SourceItem[] = [
+      {
+        sourceId: 'src_self',
+        sourceKind: 'bookmarks',
+        url: 'https://example.com/article',
+      },
+    ];
+    const graph = makeFakeGraph();
+    const deps = makeDeps(
+      { graph, llm: makeStubLlm(selfRefExtraction), ingestors: [articleIngestor] },
+      sources,
+    );
+    await runSync(deps);
+    deps.queue.close();
+
+    // Article entity should have been dropped — no Article node in graph
+    // and no entity stub in vault.
+    const articleUpserts = graph.upserts.filter((u) => u.type === 'Article');
+    expect(articleUpserts.length).toBe(0);
+    // The other (non-self-referential) entity must survive.
+    const toolUpserts = graph.upserts.filter((u) => u.type === 'Tool');
+    expect(toolUpserts.length).toBe(1);
+    // Edges that referenced the dropped entity must also be gone.
+    const orphanEdges = graph.edges.filter((e) => e.from === 'art_self' || e.to === 'art_self');
+    expect(orphanEdges.length).toBe(0);
+  });
+
+  it('keeps a non-self-referential Article entity when the source is also an article', async () => {
+    // An article that REFERENCES another article should keep the other
+    // article as an entity. Self-ref filter only drops entities whose
+    // name matches the source's title.
+    const referencingExtraction = JSON.stringify({
+      entities: [
+        { id: 'art_other', type: 'Article', name: 'A Different Article', aliases: [] },
+      ],
+      claims: [],
+      relationships: [],
+    });
+    const articleIngestor: Ingestor = {
+      kind: 'article',
+      matches: () => true,
+      ingest: (url) =>
+        Promise.resolve({
+          url,
+          kind: 'article',
+          title: 'My Article',
+          body: 'Body referencing a different article in passing — long enough.',
+          byline: null,
+          capturedAt: '2026-04-26T00:00:00.000Z',
+          metadata: {},
+        }),
+    };
+    const sources: SourceItem[] = [
+      { sourceId: 'src_my', sourceKind: 'bookmarks', url: 'https://example.com/mine' },
+    ];
+    const graph = makeFakeGraph();
+    const deps = makeDeps(
+      { graph, llm: makeStubLlm(referencingExtraction), ingestors: [articleIngestor] },
+      sources,
+    );
+    await runSync(deps);
+    deps.queue.close();
+
+    const articleUpserts = graph.upserts.filter((u) => u.type === 'Article');
+    expect(articleUpserts.length).toBe(1);
+    expect(articleUpserts[0]?.props?.name).toBe('A Different Article');
+  });
+
   it('hard auto-expand: prefers expandedUrls over body t.co shortlinks', async () => {
     // A real tweet keeps `https://t.co/abc` in body even though X's
     // urls_json resolves it to a real destination. fetchLinksStage
