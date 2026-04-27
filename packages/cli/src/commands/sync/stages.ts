@@ -604,7 +604,13 @@ export const writeVaultStage = async (deps: SyncDeps, ctx: JobContext): Promise<
   for (const entity of ctx.extraction.entities) {
     const resolution = ctx.entityResolutions.get(entity.id);
     if (resolution === undefined) continue;
-    if (entity.type === 'Source' || entity.type === 'Claim' || entity.type === 'Topic') continue;
+    if (
+      entity.type === 'Source' ||
+      entity.type === 'Claim' ||
+      entity.type === 'Topic' ||
+      entity.type === 'Idea'
+    )
+      continue;
     const entityPath = await writeMergedEntity(
       deps.vault,
       {
@@ -696,7 +702,13 @@ export const updateGraphStage = async (deps: SyncDeps, ctx: JobContext): Promise
   for (const entity of ctx.extraction.entities) {
     const resolution = ctx.entityResolutions.get(entity.id);
     if (resolution === undefined) continue;
-    if (entity.type === 'Source' || entity.type === 'Claim' || entity.type === 'Topic') continue;
+    if (
+      entity.type === 'Source' ||
+      entity.type === 'Claim' ||
+      entity.type === 'Topic' ||
+      entity.type === 'Idea'
+    )
+      continue;
     // normalized_name + normalized_aliases let the reconciler's
     // pre-flight surface-form lookup MATCH this entity on cheap exact
     // equality (catches `AI Agents`/`AI Agent` etc that vector ER

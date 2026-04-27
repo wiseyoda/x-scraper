@@ -23,7 +23,8 @@
       "@x-scraper/digest": ["./packages/digest/src/index.ts"],
       "@x-scraper/observability": ["./packages/observability/src/index.ts"],
       "@x-scraper/community": ["./packages/community/src/index.ts"],
-      "@x-scraper/capture": ["./packages/capture/src/index.ts"]
+      "@x-scraper/capture": ["./packages/capture/src/index.ts"],
+      "@x-scraper/synthesizer": ["./packages/synthesizer/src/index.ts"]
     }
   },
   "include": ["packages/**/*.ts", "spikes/**/*.ts", "apps/**/*.ts", "*.config.ts"],

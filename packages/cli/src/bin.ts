@@ -14,6 +14,13 @@ import { runAuthLogin } from './commands/auth.js';
 import { runBookmarksPull, runBookmarksSync } from './commands/bookmarks.js';
 import { runCost } from './commands/cost.js';
 import { type CheckStatus, runDoctor } from './commands/doctor.js';
+import {
+  runIdeasConfirm,
+  runIdeasList,
+  runIdeasReject,
+  runIdeasShow,
+  runIdeasSynthesize,
+} from './commands/ideas.js';
 import { runInit } from './commands/init.js';
 import { MCP_CLIENTS, type McpClient, runMcpRegister } from './commands/mcp-register.js';
 import { runRefine } from './commands/refine.js';
@@ -55,6 +62,12 @@ Commands:
   refine [--content-type=KIND]      Re-run extraction over already-captured sources (offline)
        [--source=<source-id>]        Refine a single source by id
        [--limit=N] [--max-attempts=N]
+  ideas synthesize                  Cluster claims, draft L1 ideas via Sonnet
+       [--limit=N] [--force]
+  ideas list [--status=...]         List ideas (draft|confirmed|rejected, default draft)
+  ideas show <id>                   Print one idea (frontmatter + body)
+  ideas confirm <id>                Mark a draft idea as confirmed
+  ideas reject <id>                 Mark a draft idea as rejected
   auth login [--profile-dir=DIR]    Open an authenticated x.com session (Patchright)
   bookmarks pull                    Pull bookmarks/likes/posts from x.com into the ledger
        [--source=bookmarks|likes|posts]
@@ -289,6 +302,112 @@ const runMain = async (): Promise<number> => {
       console.log(
         `schedule uninstall (${result.label}): ${result.removed ? 'removed' : 'no plist found at'} ${result.plistPath}`,
       );
+      return EXIT_OK;
+    }
+    case 'ideas': {
+      const sub = args.positionals[0];
+      if (
+        sub !== 'synthesize' &&
+        sub !== 'list' &&
+        sub !== 'show' &&
+        sub !== 'confirm' &&
+        sub !== 'reject'
+      ) {
+        console.error(
+          `xs ideas: unknown subcommand "${sub ?? ''}" — use 'synthesize', 'list', 'show', 'confirm', or 'reject'`,
+        );
+        return EXIT_USAGE;
+      }
+      if (sub === 'synthesize') {
+        const limitStr = args.options.get('limit');
+        const wired = await wireSyncDeps(
+          {
+            envFilePath: ENV_FILE_PATH,
+            vaultDir: config.vaultDir,
+            queuePath: config.queuePath,
+          },
+          [],
+        );
+        try {
+          const result = await runIdeasSynthesize({
+            vault: wired.deps.vault,
+            graph: wired.deps.graph,
+            llm: wired.deps.llm,
+            logger: wired.deps.logger,
+            ...(limitStr === undefined ? {} : { limit: Number(limitStr) }),
+            ...(args.flags.has('force') ? { force: true } : {}),
+          });
+          console.log(
+            `ideas synthesize: written=${String(result.ideaIdsWritten.length)} skippedExisting=${String(result.skippedExisting)} belowThreshold=${String(result.belowThreshold)} cost=$${result.costUsd.toFixed(4)}`,
+          );
+          return EXIT_OK;
+        } finally {
+          await wired.cleanup();
+        }
+      }
+      const vault = createMarkdownVault(config.vaultDir);
+      if (sub === 'list') {
+        const statusArg = args.options.get('status');
+        const VALID_STATUSES = ['draft', 'confirmed', 'rejected'] as const;
+        type IdeaStatus = (typeof VALID_STATUSES)[number];
+        if (statusArg !== undefined && !(VALID_STATUSES as readonly string[]).includes(statusArg)) {
+          console.error(
+            `xs ideas list: --status must be one of ${VALID_STATUSES.join('|')} (got ${statusArg})`,
+          );
+          return EXIT_USAGE;
+        }
+        // Default to drafts — confirmed/rejected are out of the review queue.
+        const status = (statusArg as IdeaStatus | undefined) ?? 'draft';
+        const entries = await runIdeasList(vault, { status });
+        if (entries.length === 0) {
+          console.log(`ideas list (status=${status}): no entries`);
+          return EXIT_OK;
+        }
+        console.log(`ideas list (status=${status}): ${String(entries.length)} entries`);
+        for (const e of entries) {
+          console.log(
+            `  ${e.id.padEnd(20)} ${e.status.padEnd(10)} conf=${e.confidence.toFixed(2)} src=${String(e.sourceCount).padStart(2)} claims=${String(e.derivedFromCount).padStart(2)}  ${e.subject}`,
+          );
+        }
+        return EXIT_OK;
+      }
+      const id = args.positionals[1];
+      if (id === undefined || id.length === 0) {
+        console.error(`xs ideas ${sub}: <id> is required`);
+        return EXIT_USAGE;
+      }
+      if (sub === 'show') {
+        const idea = await runIdeasShow(vault, id);
+        if (idea === null) {
+          console.error(`xs ideas show: ${id} not found`);
+          return EXIT_FAIL;
+        }
+        console.log(`# ${idea.frontmatter.id}`);
+        console.log(`subject: ${idea.frontmatter.subject}`);
+        console.log(`status: ${idea.frontmatter.status}`);
+        console.log(`confidence: ${idea.frontmatter.synthesizer_confidence.toFixed(2)}`);
+        console.log(`sources: ${idea.frontmatter.sources.join(', ')}`);
+        console.log(`derived_from: ${idea.frontmatter.derived_from.join(', ')}`);
+        console.log('---');
+        console.log(idea.body);
+        return EXIT_OK;
+      }
+      if (sub === 'confirm') {
+        const result = await runIdeasConfirm(vault, id);
+        if (result === null) {
+          console.error(`xs ideas confirm: ${id} not found`);
+          return EXIT_FAIL;
+        }
+        console.log(`ideas confirm: ${result.id} ${result.previousStatus} → ${result.newStatus}`);
+        return EXIT_OK;
+      }
+      // sub === 'reject'
+      const result = await runIdeasReject(vault, id);
+      if (result === null) {
+        console.error(`xs ideas reject: ${id} not found`);
+        return EXIT_FAIL;
+      }
+      console.log(`ideas reject: ${result.id} ${result.previousStatus} → ${result.newStatus}`);
       return EXIT_OK;
     }
     case 'review': {

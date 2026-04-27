@@ -9,6 +9,7 @@ export type {
   EdgeRecord,
   EntityFrontmatter,
   Frontmatter,
+  IdeaFrontmatter,
   SourceFrontmatter,
   TopicFrontmatter,
 } from './frontmatter-schemas.js';
@@ -17,6 +18,7 @@ export {
   EdgeRecordSchema,
   EntityFrontmatterSchema,
   FrontmatterSchema,
+  IdeaFrontmatterSchema,
   SourceFrontmatterSchema,
   TopicFrontmatterSchema,
 } from './frontmatter-schemas.js';

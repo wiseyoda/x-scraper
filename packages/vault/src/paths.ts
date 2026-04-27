@@ -98,6 +98,8 @@ export const dirForEntityType = (type: EntityType, contentType?: SourceContentTy
     case 'Tool':
     case 'Concept':
       return VAULT_DIRS.entities;
+    case 'Idea':
+      return VAULT_DIRS.ideas;
     default: {
       const exhaustive: never = type;
       throw new CoreError(`unknown entity type: ${String(exhaustive)}`, 'UNKNOWN');

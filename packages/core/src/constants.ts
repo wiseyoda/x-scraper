@@ -16,6 +16,7 @@ export const ENTITY_TYPES = [
   'PDF',
   'Source',
   'Claim',
+  'Idea',
 ] as const;
 export type EntityType = (typeof ENTITY_TYPES)[number];
 
@@ -40,6 +41,9 @@ export const EDGE_TYPES = [
   'REFERENCED_WHILE_BUILDING',
   // Tentative (entity resolution)
   'SAME_AS_PROBABLE',
+  // Knowledge promotion (L0 claim → L1 idea → L2 learning → L3 principle)
+  'SYNTHESIZED_FROM',
+  'PROMOTES',
 ] as const;
 export type EdgeType = (typeof EDGE_TYPES)[number];
 
@@ -56,6 +60,7 @@ export const VAULT_DIRS = {
   claims: 'claims',
   entities: 'entities',
   topics: 'topics',
+  ideas: 'ideas',
   digests: 'digests',
   internal: '.xscraper',
 } as const;
@@ -72,4 +77,5 @@ export const ID_PREFIXES = {
   Tweet: 'tw',
   Video: 'vid',
   PDF: 'pdf',
+  Idea: 'idea',
 } as const satisfies Partial<Record<EntityType, string>>;

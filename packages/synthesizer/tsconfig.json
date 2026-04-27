@@ -9,19 +9,10 @@
   "include": ["src/**/*.ts"],
   "exclude": ["dist", "node_modules", "**/*.test.ts"],
   "references": [
-    { "path": "../capture" },
-    { "path": "../community" },
     { "path": "../core" },
-    { "path": "../embeddings" },
-    { "path": "../extractor" },
     { "path": "../graph" },
-    { "path": "../ingestor" },
     { "path": "../llm" },
     { "path": "../observability" },
-    { "path": "../queue" },
-    { "path": "../reconciler" },
-    { "path": "../scraper" },
-    { "path": "../synthesizer" },
     { "path": "../vault" }
   ]
 }

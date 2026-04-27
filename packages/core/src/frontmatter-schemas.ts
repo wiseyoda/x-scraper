@@ -77,11 +77,44 @@ export const EntityFrontmatterSchema = z.object({
 });
 export type EntityFrontmatter = z.infer<typeof EntityFrontmatterSchema>;
 
+/**
+ * Idea = L1 knowledge node. Synthesized from a cluster of L0 claims that
+ * share a subject, agree across ≥2 sources, and survived an LLM judge
+ * pass. Promotion chain: claim (L0) → idea (L1) → learning (L2) →
+ * principle (L3). Only L1 is implemented in this slice; L2/L3 land later.
+ *
+ * status moves draft → confirmed via `xs ideas confirm`. A rejected
+ * idea stays on disk (audit trail) but doesn't surface in lists or the
+ * web-ui review queue.
+ */
+export const IdeaFrontmatterSchema = z.object({
+  ...BaseFrontmatterShape,
+  type: z.literal('Idea'),
+  /** Knowledge tier — 1 for ideas, reserved for future learning/principle. */
+  tier: z.literal(1),
+  /** Workflow state. */
+  status: z.enum(['draft', 'confirmed', 'rejected']).default('draft'),
+  /** Surface form of the cluster's anchor (entity / concept name / theme). */
+  subject: z.string().min(1),
+  /** Synthesizer confidence in the agreement quality of the cluster. */
+  synthesizer_confidence: z.number().min(0).max(1),
+  /** Synthesizer prompt version that produced this idea. Bump on prompt changes. */
+  synthesizer_version: z.number().int().nonnegative().default(1),
+  /** ISO timestamp the idea was synthesized. */
+  synthesized_at: z.iso.datetime(),
+  /** L0 claim ids the idea was drafted from. */
+  derived_from: z.array(z.string()).default([]),
+  /** Optional manual override of the LLM-generated body. */
+  edited_body: z.boolean().default(false),
+});
+export type IdeaFrontmatter = z.infer<typeof IdeaFrontmatterSchema>;
+
 export const FrontmatterSchema = z.discriminatedUnion('type', [
   SourceFrontmatterSchema,
   ClaimFrontmatterSchema,
   TopicFrontmatterSchema,
   EntityFrontmatterSchema,
+  IdeaFrontmatterSchema,
 ]);
 export type Frontmatter = z.infer<typeof FrontmatterSchema>;
 

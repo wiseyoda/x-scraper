@@ -147,6 +147,9 @@ importers:
       '@x-scraper/scraper':
         specifier: workspace:*
         version: link:../scraper
+      '@x-scraper/synthesizer':
+        specifier: workspace:*
+        version: link:../synthesizer
       '@x-scraper/vault':
         specifier: workspace:*
         version: link:../vault
@@ -512,6 +515,37 @@ importers:
       '@x-scraper/core':
         specifier: workspace:*
         version: link:../core
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.17
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.19.17)(jsdom@29.0.2)
+
+  packages/synthesizer:
+    dependencies:
+      '@x-scraper/core':
+        specifier: workspace:*
+        version: link:../core
+      '@x-scraper/graph':
+        specifier: workspace:*
+        version: link:../graph
+      '@x-scraper/llm':
+        specifier: workspace:*
+        version: link:../llm
+      '@x-scraper/observability':
+        specifier: workspace:*
+        version: link:../observability
+      '@x-scraper/vault':
+        specifier: workspace:*
+        version: link:../vault
       zod:
         specifier: ^4.3.6
         version: 4.3.6
