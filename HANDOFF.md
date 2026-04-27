@@ -101,9 +101,9 @@ The three feature commits address those three problems.
   in-process. No REST round-trip.
 - Routes (deferred routes per `docs/web-ui/ROADMAP.md` will land later:
   graph viz, agent chat, source browser, search):
-  - `/`            → redirects to `/ideas`
-  - `/ideas`       → list ideas filtered by status (default draft)
-  - `/ideas/<id>`  → idea body + Confirm/Reject server-action forms
+  - `/` → redirects to `/ideas`
+  - `/ideas` → list ideas filtered by status (default draft)
+  - `/ideas/<id>` → idea body + Confirm/Reject server-action forms
 - Workspace tsconfig + eslint excludes `apps/web-ui/` (Next has its own
   passes; the strict-type-checked profile we run on packages conflicts
   with RSC/JSX patterns).
@@ -113,16 +113,16 @@ The three feature commits address those three problems.
 Reset state (vault, queue, Neo4j) with /tmp backups, ran the new
 pipeline against three seed URLs, verified each layer:
 
-| Step | Result |
-| ---- | ------ |
-| `xs init` | vault + queue created |
-| `xs doctor` | all checks PASS, vault not iCloud-synced |
-| `xs sync --urls=<3 URLs>` | 2 captured, 1 dead (404), $0.082 LLM, capture cache wrote 2 JSON entries |
-| `xs refine --content-type=repo` | 2 cached refines, 0 dead, $0.080 LLM, no network |
-| `xs ideas synthesize` | 48 claims loaded, 3 below-threshold clusters, 0 ideas (small corpus) |
-| `xs ideas list` | empty draft list (correct) |
-| `xs topic detect --synthesize --min-size=2` | 1 topic, 3 concepts, $0.001 |
-| Web-ui (port 3737) | HTTP 200, /ideas renders empty-state |
+| Step                                        | Result                                                                   |
+| ------------------------------------------- | ------------------------------------------------------------------------ |
+| `xs init`                                   | vault + queue created                                                    |
+| `xs doctor`                                 | all checks PASS, vault not iCloud-synced                                 |
+| `xs sync --urls=<3 URLs>`                   | 2 captured, 1 dead (404), $0.082 LLM, capture cache wrote 2 JSON entries |
+| `xs refine --content-type=repo`             | 2 cached refines, 0 dead, $0.080 LLM, no network                         |
+| `xs ideas synthesize`                       | 48 claims loaded, 3 below-threshold clusters, 0 ideas (small corpus)     |
+| `xs ideas list`                             | empty draft list (correct)                                               |
+| `xs topic detect --synthesize --min-size=2` | 1 topic, 3 concepts, $0.001                                              |
+| Web-ui (port 3737)                          | HTTP 200, /ideas renders empty-state                                     |
 
 ## Key Decisions
 
@@ -172,7 +172,7 @@ pipeline against three seed URLs, verified each layer:
 
 - **Re-populate the corpus.** Run `xs bookmarks pull --max=200` then
   ramp `xs bookmarks sync --order=oldest --limit=1, 2, 4, 8, 16, 32,
-  64, 128`. Budget ~$5–8 (capture is one-shot per URL forever; refine
+64, 128`. Budget ~$5–8 (capture is one-shot per URL forever; refine
   is free network-wise from then on).
 - **First real synthesize run.** Once the corpus has 200+ sources,
   `xs ideas synthesize` should produce real clusters. Use

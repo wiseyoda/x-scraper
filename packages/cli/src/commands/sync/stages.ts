@@ -156,28 +156,42 @@ export const fetchLinksStage = async (deps: SyncDeps, ctx: JobContext): Promise<
 
 export const extractTextStage = async (deps: SyncDeps, ctx: JobContext): Promise<void> => {
   const now = (deps.now ?? ((): Date => new Date()))().toISOString();
-  // Pre-fetched body short-circuit (tweet text already pulled by the
-  // scraper). Persist it as a TweetCaptured so refine sees it the same
-  // as any other source.
+  // Pre-fetched body short-circuit. Three callers reach here:
+  //   1. xs bookmarks sync — tweet text from the scraper. Persist a
+  //      TweetCaptured so refine sees the tweet the same as any other
+  //      source.
+  //   2. xs refine — body comes from a previously-captured source the
+  //      cache already has the rich form for. Must NOT overwrite the
+  //      cached repo/article/youtube/pdf with a tweet envelope.
+  //   3. xs reindex — body comes from existing Source.md. Same rule:
+  //      don't clobber a richer cached entry; if the cache has nothing,
+  //      we're not going to magically reconstruct one from body alone.
+  //
+  // Discriminate via inferContentType + cache presence: only the tweet
+  // case writes a capture, and only when nothing is there yet.
   if (ctx.source.body !== undefined && ctx.source.body.length > 0) {
-    const tweetCaptured = buildTweetCapture(
-      {
-        url: ctx.source.url,
-        text: ctx.source.body,
-        title: ctx.source.title ?? null,
-        byline: ctx.source.byline ?? null,
-      },
-      deps.now ?? ((): Date => new Date()),
-    );
-    if (deps.captureStore !== undefined) {
-      await deps.captureStore.write(tweetCaptured);
+    const inferred = inferContentType(ctx.source.url);
+    if (deps.captureStore !== undefined && inferred === 'tweet') {
+      const cached = await deps.captureStore.read(ctx.source.url);
+      if (cached === null) {
+        const tweetCaptured = buildTweetCapture(
+          {
+            url: ctx.source.url,
+            text: ctx.source.body,
+            title: ctx.source.title ?? null,
+            byline: ctx.source.byline ?? null,
+          },
+          deps.now ?? ((): Date => new Date()),
+        );
+        await deps.captureStore.write(tweetCaptured);
+      }
     }
     ctx.ingested = {
       body: ctx.source.body,
       title: ctx.source.title ?? null,
       byline: ctx.source.byline ?? null,
       capturedAt: ctx.source.discoveredAt ?? now,
-      contentType: inferContentType(ctx.source.url),
+      contentType: inferred,
       metadata: {},
     };
     return;
