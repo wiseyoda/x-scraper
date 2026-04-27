@@ -1,13 +1,22 @@
 # Session Handoff
 
-> Updated 2026-04-27 mid-session 6 (Pat headed to airport mid-ramp). PR #28
-> is **MERGED** into main as squash commit `f8a567f`. Branch
-> `feat/bookmark-ledger` is deleted both locally and remotely. Currently
-> running a backed-off ramp at the new iCloud-safe vault path
-> `~/x-scraper-vault`. Step 128 is in flight in a bash background task
-> when this was written; will likely have completed by next session.
+> Updated 2026-04-27 end of session 6. Pat had to leave mid-ramp.
+> Three things shipped to main this session:
 >
-> **Read this first.**
+> 1. **PR #28 merged** as squash `f8a567f` — bookmark ledger + X Article
+>    ingestor + 12 quality upgrades + 11 codex/quality fixes. Branch
+>    `feat/bookmark-ledger` deleted locally and remotely.
+> 2. **Backed-off ramp** at the new iCloud-safe vault `~/x-scraper-vault`
+>    drove all **200 organic bookmarks to synced**. Step 128 was still
+>    draining the derived-row backlog (~176 derived new, 6 synced, 1
+>    dead) when this was written. Bash background task running step 128
+>    will continue if/when Claude Code closes; queue is durable so
+>    nothing is lost.
+> 3. **`docs/web-ui/` planning set** (6 markdown files, ~56KB) for a
+>    Next.js 15 + shadcn web app with knowledge-graph viz + Claude
+>    Agent SDK research surface. Build-this-week feature.
+>
+> **Read this first, then resume with the "On resume" section below.**
 
 ## What landed in main this session (f8a567f, squash of 26 commits)
 
@@ -112,7 +121,36 @@ twice, fixed everything codex caught, ramped through the corpus.
 | 64   | 64 | 64 | 0 | ~10m  | $1.284 | 67 |
 | 128  | 128 | in flight | 0 | running | running | running |
 
-## What's next when you resume
+## docs/web-ui/ — planned Next.js + Agent SDK app
+
+Six planning docs at `docs/web-ui/` (committed in `8e33c9e`):
+
+- `README.md` — overview, scope, tech stack at a glance, layout sketch
+- `ARCHITECTURE.md` — Next.js 15 + RSC + Server Actions structure,
+  runtime model, hot-reload-safe singletons, auth, caching, CI
+- `AGENT_SDK.md` — read flow vs write flow, tool catalog (read +
+  write tables), in-process MCP server pattern, streaming wiring,
+  session persistence schema, three-layer safety
+- `GRAPH_VIS.md` — Sigma.js v3 + Graphology + `@react-sigma/core`
+  decision (with comparison table), visual encoding, ForceAtlas2 in
+  a worker, URL-encoded saved views, topic halo overlay
+- `COMPONENTS.md` — three-tier rule (shadcn → domain → page),
+  inventory of `<EntityCard>`, `<ClaimRow>`, `<GraphCanvas>`,
+  `<AgentChat>`, etc., hooks, state-management posture
+- `ROADMAP.md` — four-phase build plan (~5–7 days): scaffold → read
+  surface → graph viz → write flow + polish, exit criteria per
+  phase
+
+Stack lock-in: Next.js 15 + Tailwind 4 + shadcn/ui + Sigma.js +
+TanStack Table + Vercel AI SDK + Claude Agent SDK. App lives at
+`apps/web-ui` (the existing `pnpm-workspace.yaml` already has
+`apps/*`). Single user, localhost-only, bearer auth.
+
+Three research agents informed each doc — claude-code-guide for the
+Agent SDK, two general-purpose for graph viz library comparison and
+Next.js 15 + shadcn data-app patterns.
+
+## On resume
 
 ### 1. Verify step 128 finished cleanly
 
@@ -125,35 +163,56 @@ sqlite3 ~/.config/x-scraper/queue.sqlite "SELECT source_kind, status, COUNT(*) F
 If finished cleanly, expect ~all organics synced (`organic|new` near 0)
 and a larger derived backlog.
 
-### 2. Drain the remaining organic stragglers
+### 2. Fix the t.co-in-entity-alias bug
 
-If `organic|new` > 0 (because step 128 hit its limit), run another
-`xs bookmarks sync --order=oldest --limit=N` until 0.
+Surfaced during the ramp: my Phase 6a auto-ingest of URLs from entity
+aliases doesn't filter `t.co` shortlinks the way `fetchLinksStage`
+does for body URLs. When the LLM emits a `t.co` URL in an entity
+alias, `enqueueEntityLinkDerivedRows` writes it to the derived ledger
+as-is. Readability returns null → permanent failure → dead.
 
-### 3. Drain derived rows in doubling batches
+**Already 1 dead row** from this: `derived_src_eb5e996c`,
+`https://t.co/P5rjoZxD4A`. Likely more by the time step 128 finishes.
 
-By the time step 128 finishes there will be ~150-200 derived rows
-queued (auto-expanded from organic tweet bodies and entity URL aliases).
-These are mostly external articles, repos, and videos — rich content,
-higher cost per item. Drain in doubling batches (`--limit=2`, then 4,
-8, 16, 32, 64, 128) and stop on any failure.
+Fix is one block in
+`packages/cli/src/commands/sync/stages.ts:enqueueEntityLinkDerivedRows`:
+add a `t.co` hostname guard alongside the existing
+`X_TWEET_URL_RE.test(canonical)` skip. The canonical t.co URL won't
+resolve here without an HTTP HEAD; simplest is to skip any URL whose
+host is `t.co`.
 
-Some derived rows will be cross-host articles (high body, high extract
-cost: $0.10-0.30 each). Some will be github repos (RepoIngestor fetches
-README + metadata, ~$0.01 each). Budget another $5-15 to drain all
-derived.
+After fixing: any dead rows can be retried via the queue's
+`retryFailed` if you want them re-attempted on the LLM resolving the
+final URL through some other path. Or just leave them as a record
+that the t.co target was unrecoverable.
+
+### 3. Drain remaining derived rows in doubling batches
+
+By the time step 128 finishes there will likely still be 50–100
+derived rows in `new` (the queue auto-expands as it ingests). Drain
+in doubling batches (`--limit=2`, 4, 8, 16, 32, 64, 128) until
+`derived|new` = 0. Stop on any unexpected failure pattern (more than
+1-2 dead per batch).
+
+Some derived rows will be cross-host articles (high body, high
+extract cost: $0.10-0.30 each). Some will be github repos (~$0.01
+each via RepoIngestor). Budget another $5-15 to drain all derived
+that come in.
 
 ### 4. After everything settles
 
 - Run `xs topic detect --synthesize` against the populated graph (now
-  has ~600+ entities, much richer cooccurrence — should produce real
+  has 600+ entities, much richer cooccurrence — should produce real
   community-based topics for the first time this session).
 - Run `xs trends` to confirm the data looks sensible.
 - Look at the vault in Obsidian: open a couple Source.md files, click
   through to entity stubs, verify the `## Mentioned in` wikilinks
   resolve correctly across multi-source entities.
-- Optionally: scaffold `packages/web-ui` (the long-deferred review UI;
-  task #6 was kept in_progress all session but never started).
+
+### 5. Start building apps/web-ui
+
+Plan is in `docs/web-ui/`. Phase 0 (scaffold) is half a day. See
+`docs/web-ui/ROADMAP.md` for the four-phase plan and exit criteria.
 
 ## Key absolute paths
 
@@ -186,10 +245,22 @@ derived.
 
 ## Open task slots
 
-From the in_progress task list at write time:
+- #5 ramp re-ingest — derived backlog still draining
+- #6 plan apps/web-ui — DONE (in `docs/web-ui/`)
+- #9 build apps/web-ui per `docs/web-ui/ROADMAP.md` — pending
 
-- #5 ramp re-ingest (this is what step 128 is finishing)
-- #6 scaffold `packages/web-ui` — never started, still useful
+## State of the persistent stores (snapshot taken just before write)
+
+- bookmark_ledger:
+  - `organic|synced` **200 / 200**  ✓ (full corpus ingested)
+  - `derived|synced` 6, `derived|new` 176, `derived|failed` 1 (dead)
+- vault `~/x-scraper-vault/`:
+  - sources: ~210
+  - claims: ~1100
+  - entities: ~320
+- cost ledger: ~$3.40 spent
+- ghost dirs: 0
+- Step 128 bash bg task: still running, ~62/128 items done
 
 ## Files that may matter
 
