@@ -38,3 +38,9 @@ export const POSTS_GRAPHQL_MARKER = '/UserTweets';
 export const REQUIRED_AUTH_COOKIES = ['auth_token', 'ct0', 'twid'] as const;
 
 export const SCRAPER_USER_AGENT_VIEWPORT = { width: 1280, height: 800 } as const;
+
+// Detects tweets whose body is just a t.co redirect (image/video/quote-only
+// tweets that X collapses into a single shortlink). Skipping these saves a
+// per-bookmark Sonnet+Gemini round-trip (~$0.014/bookmark, ~$0.40/200 run)
+// because the linked content is recovered separately by hard auto-expand.
+export const TCO_ONLY_TWEET_RE = /^\s*https?:\/\/t\.co\/\w+\s*$/;

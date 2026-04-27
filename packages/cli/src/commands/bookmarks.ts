@@ -18,7 +18,7 @@
  *     retry, skip, or fix-and-resume.
  */
 
-import { canonicalizeUrl, entityId } from '@x-scraper/core';
+import { canonicalizeUrl, contentHash, entityId, type SourceFrontmatter } from '@x-scraper/core';
 import type { Logger } from '@x-scraper/observability';
 import { createLogger, jsonLineSink } from '@x-scraper/observability';
 import type { BookmarkSource, JobQueue } from '@x-scraper/queue';
@@ -32,8 +32,11 @@ import {
   fetchPosts,
   openAuthenticatedSession,
   ScraperError,
+  TCO_ONLY_TWEET_RE,
   tweetPermalink,
 } from '@x-scraper/scraper';
+import type { VaultStore } from '@x-scraper/vault';
+import { createMarkdownVault } from '@x-scraper/vault';
 
 import type { CliConfig } from '../config.js';
 import { ENV_FILE_PATH } from '../constants.js';
@@ -176,6 +179,8 @@ export interface BookmarksSyncOptions {
   logger?: Logger;
   /** Test seam: stub the per-bookmark sync runner. */
   syncOne?: (item: BookmarkSyncItem) => Promise<BookmarkSyncOutcome>;
+  /** Test seam: inject the vault writer used for link-only stub Source.md files. */
+  vault?: VaultStore;
 }
 
 export interface BookmarkSyncItem {
@@ -221,6 +226,52 @@ export const buildSyncItemFromLedger = (entry: {
     ...(entry.author === null ? {} : { byline: entry.author }),
   };
   return { entryId: entry.entryId, source: sourceItem };
+};
+
+const PROMPT_VERSION_DEFAULT = { extraction: 1, reconciliation: 1, embedding: 1 };
+
+/**
+ * Pre-flight: a tweet whose body is just a t.co shortlink (image-only,
+ * video-only, or quote tweet) has no extractable claims. Run extraction
+ * anyway and we burn ~$0.014 in Sonnet+Gemini for nothing — and the
+ * useful content lives at the t.co target, recovered separately by hard
+ * auto-expand. Write a stub Source.md so the audit trail is preserved
+ * (entry_id ↔ source_id) and short-circuit the queue.
+ */
+const writeLinkOnlyStub = async (
+  vault: VaultStore,
+  item: BookmarkSyncItem,
+  now: string,
+): Promise<string> => {
+  const body = item.source.body ?? '';
+  const fm: SourceFrontmatter = {
+    id: item.source.sourceId,
+    type: 'Source',
+    created_at: now,
+    updated_at: now,
+    prompt_version: PROMPT_VERSION_DEFAULT,
+    sources: [],
+    aliases: [],
+    tags: [],
+    topics: [],
+    url: item.source.url,
+    canonical_url: item.source.url,
+    captured_at: item.source.discoveredAt ?? now,
+    content_type: 'tweet',
+    host_metadata: {
+      sourceKind: item.source.sourceKind,
+      skipReason: 'link_only_tweet',
+      ...(item.source.byline === undefined ? {} : { byline: item.source.byline }),
+    },
+    content_hash: contentHash(body),
+    embedding_model: 'none',
+  };
+  return vault.write({ frontmatter: fm, body });
+};
+
+const isLinkOnly = (item: BookmarkSyncItem): boolean => {
+  const body = item.source.body;
+  return body !== undefined && TCO_ONLY_TWEET_RE.test(body);
 };
 
 export const runBookmarksSync = async (
@@ -275,10 +326,69 @@ export const runBookmarksSync = async (
     ((item: BookmarkSyncItem): Promise<BookmarkSyncOutcome> =>
       runOnePerLedgerItem(config, item, options.dryRun === true));
 
+  // Lazily resolve the vault writer used for link-only stub Source.md
+  // files — only built when we actually have a link-only candidate, so
+  // tests that stub `syncOne` without supplying `vault` still work.
+  const vault: VaultStore =
+    options.vault ??
+    (items.some(isLinkOnly)
+      ? createMarkdownVault(config.vaultDir)
+      : (null as unknown as VaultStore));
+  if (options.vault === undefined && items.some(isLinkOnly)) await vault.init();
+
   const outcomes: BookmarkSyncOutcome[] = [];
   let totalCost = 0;
   let halted = false;
   for (const item of items) {
+    if (isLinkOnly(item)) {
+      const start = Date.now();
+      const now = new Date().toISOString();
+      try {
+        await writeLinkOnlyStub(vault, item, now);
+        outcomes.push({
+          entryId: item.entryId,
+          runId: 'skip-link-only',
+          jobId: null,
+          jobStatus: null,
+          status: 'synced',
+          error: null,
+          durationMs: Date.now() - start,
+          costUsd: 0,
+        });
+        logger.info('bookmarks.sync.skipped_link_only', { entryId: item.entryId });
+      } catch (err) {
+        outcomes.push({
+          entryId: item.entryId,
+          runId: 'skip-link-only',
+          jobId: null,
+          jobStatus: null,
+          status: 'failed',
+          error: err instanceof Error ? err.message : String(err),
+          durationMs: Date.now() - start,
+          costUsd: 0,
+        });
+      }
+
+      const writebackQueue = createSqliteQueue(config.queuePath);
+      try {
+        const last = outcomes[outcomes.length - 1];
+        if (last !== undefined) {
+          writebackQueue.updateBookmark(item.entryId, {
+            status: last.status,
+            runId: last.runId,
+            jobId: last.jobId,
+            ...(last.status === 'synced'
+              ? { syncedAt: now, lastError: null }
+              : { lastError: last.error ?? 'unknown' }),
+            bumpAttempts: true,
+          });
+        }
+      } finally {
+        writebackQueue.close();
+      }
+      continue;
+    }
+
     const outcome = await syncOne(item);
     outcomes.push(outcome);
     totalCost += outcome.costUsd;
@@ -342,15 +452,20 @@ const runOnePerLedgerItem = async (
   // returns exactly that one item. The queue is opened fresh inside
   // wireSyncDeps and closed in cleanup so concurrent reads from the
   // ledger writeback don't deadlock with WAL writers.
-  const wired = await wireSyncDeps(
-    {
-      envFilePath: ENV_FILE_PATH,
-      vaultDir: config.vaultDir,
-      queuePath: config.queuePath,
-    },
-    [item.source],
-  );
+  //
+  // wireSyncDeps must be inside the try so a wire-time failure (missing
+  // env, Neo4j down, vault init failure) is recorded as a per-bookmark
+  // failure instead of aborting the whole batch. (Codex P2.)
+  let wired: Awaited<ReturnType<typeof wireSyncDeps>> | null = null;
   try {
+    wired = await wireSyncDeps(
+      {
+        envFilePath: ENV_FILE_PATH,
+        vaultDir: config.vaultDir,
+        queuePath: config.queuePath,
+      },
+      [item.source],
+    );
     const result = await runSync(wired.deps, {
       source: item.source.sourceKind,
       ...(dryRun ? { skipGraph: true } : {}),
@@ -385,6 +500,6 @@ const runOnePerLedgerItem = async (
       costUsd: 0,
     };
   } finally {
-    await wired.cleanup();
+    if (wired !== null) await wired.cleanup();
   }
 };

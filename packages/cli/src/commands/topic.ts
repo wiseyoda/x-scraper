@@ -209,8 +209,12 @@ export const runTopicDetect = async (
   const vault = options.vault ?? createMarkdownVault(config.vaultDir);
 
   try {
-    if (options.vault === undefined) await vault.init();
-    if (options.graph === undefined) await graph.init();
+    // Dry-run skips writers entirely — no point creating vault directories,
+    // git metadata, or Neo4j constraints/indexes when we won't write.
+    // (Codex P3.) Production graph init must already have run for any
+    // useful subgraph to exist anyway.
+    if (!dryRun && options.vault === undefined) await vault.init();
+    if (!dryRun && options.graph === undefined) await graph.init();
 
     const subgraph: ConceptSubgraph = await graph.listConceptSubgraph();
     logger.info('topic.detect.subgraph_loaded', {

@@ -17,7 +17,10 @@ import { buildLaunchdPlist, defaultPlistPath } from '@x-scraper/digest';
 
 const execFileAsync = promisify(execFile);
 
-export type ScheduleMode = 'bookmarks-sync' | 'sync';
+// Only `bookmarks-sync` is schedulable today: `xs sync` requires `--urls=...`
+// to be passed at invocation time, which a static plist can't provide.
+// (Codex P2: a sync-mode plist would fail on every interval.)
+export type ScheduleMode = 'bookmarks-sync';
 
 export interface ScheduleInstallOptions {
   /** Which command to schedule. Default: bookmarks-sync. */
@@ -57,7 +60,6 @@ const resolveBinPath = (): string => {
 
 const COMMAND_BY_MODE: Record<ScheduleMode, string[]> = {
   'bookmarks-sync': ['bookmarks', 'sync'],
-  sync: ['sync'],
 };
 
 export const runScheduleInstall = async (
@@ -72,10 +74,14 @@ export const runScheduleInstall = async (
   const args = COMMAND_BY_MODE[mode];
   const stdoutPath = `/tmp/${label}.out.log`;
   const stderrPath = `/tmp/${label}.err.log`;
+  // Use the absolute Node executable that's running this CLI right now —
+  // launchd doesn't inherit shell PATH, so /usr/bin/env node would either
+  // miss Homebrew/nvm Node entirely or land on a Node with the wrong
+  // better-sqlite3 ABI. (Codex P2.)
   const plist = buildLaunchdPlist({
     label,
-    programPath: '/usr/bin/env',
-    args: ['node', binPath, ...args],
+    programPath: process.execPath,
+    args: [binPath, ...args],
     intervalSeconds,
     stdoutPath,
     stderrPath,

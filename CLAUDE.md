@@ -98,6 +98,7 @@ TypeScript (Node 22.13+, ESM, pnpm 10) · Patchright (stealth Playwright) · **N
 - Codex review at every milestone: spike completion, slice merge, phase tag. P1/P2 findings block merge.
 - Reserved fields (logger time/level/msg, timer label/ms) beat caller data — spread caller fields first.
 - Auth fails closed: `xs-rest` refuses to start without a bearer token unless `XSCRAPER_REST_ALLOW_UNAUTH=1`.
+- **Neo4j test-pollution prevention**: any spike or test that writes to the live Neo4j MUST prefix every node id with `xs_int_test_` (integration tests) or `xs_spike<N>_` (spikes), and DETACH DELETE its prefixed nodes in `afterAll` / `finally`. Spikes that need to wipe the DB MUST first refuse-if-populated by counting non-prefixed nodes (see `spikes/3-neo4j.ts:refuseIfDbIsPopulated`). Canonical pattern: `packages/graph/src/__tests__/neo4j-store.integration.test.ts`.
 
 ## Environment
 

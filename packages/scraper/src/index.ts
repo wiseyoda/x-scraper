@@ -14,6 +14,7 @@ export type {
   SessionCapInput,
 } from './bot-mitigation.js';
 export { createQueryIdRegistry, createSessionCap, jitteredDelay } from './bot-mitigation.js';
+export { TCO_ONLY_TWEET_RE } from './constants.js';
 export type { ParsedPage, RawBookmarksResponse, RawUserTimelineResponse } from './parsing.js';
 export {
   buildCursorReplayUrl,

@@ -267,4 +267,65 @@ describe('runBookmarksSync', () => {
     });
     expect(seen).toEqual(['new', 'old']);
   });
+
+  it('skips link-only tweets without invoking syncOne and writes a stub Source.md', async () => {
+    const queue = createSqliteQueue(config.queuePath);
+    queue.upsertBookmark({
+      entryId: 'link-only',
+      tweetId: '1',
+      source: 'bookmarks',
+      sourceUrl: 'https://x.com/u/status/1',
+      author: 'u',
+      text: 'https://t.co/abc123XYZ',
+      capturedAt: '2026-01-01T00:00:00.000Z',
+    });
+    queue.upsertBookmark({
+      entryId: 'real',
+      tweetId: '2',
+      source: 'bookmarks',
+      sourceUrl: 'https://x.com/u/status/2',
+      author: 'u',
+      text: 'this is a real tweet with substance',
+      capturedAt: '2026-01-02T00:00:00.000Z',
+    });
+    queue.close();
+
+    const seen: string[] = [];
+    const stubSync = (item: { entryId: string }): Promise<BookmarkSyncOutcome> => {
+      seen.push(item.entryId);
+      return Promise.resolve({
+        entryId: item.entryId,
+        runId: 'r',
+        jobId: 'j',
+        jobStatus: 'done',
+        status: 'synced',
+        error: null,
+        durationMs: 1,
+        costUsd: 0.01,
+      });
+    };
+    const result = await runBookmarksSync(config, { syncOne: stubSync });
+    // syncOne only called for the substantive tweet; link-only short-circuited.
+    expect(seen).toEqual(['real']);
+    expect(result.attempted).toBe(2);
+    expect(result.succeeded).toBe(2);
+    expect(result.totalCostUsd).toBeCloseTo(0.01);
+
+    // Link-only outcome marked synced with skip-link-only runId.
+    const skipped = result.outcomes.find((o) => o.entryId === 'link-only');
+    expect(skipped?.runId).toBe('skip-link-only');
+    expect(skipped?.costUsd).toBe(0);
+
+    // Stub Source.md present in vault with skipReason metadata. Find by
+    // scanning sources/ for src_*.md files (vault.init writes README etc.).
+    const sourcesDir = path.join(config.vaultDir, 'sources');
+    const files = (await fs.readdir(sourcesDir)).filter((f) => f.startsWith('src_'));
+    expect(files.length).toBe(1);
+    const firstFile = files[0];
+    expect(firstFile).toBeDefined();
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const stub = await fs.readFile(path.join(sourcesDir, firstFile!), 'utf8');
+    expect(stub).toContain('skipReason: link_only_tweet');
+    expect(stub).toContain('content_type: tweet');
+  });
 });

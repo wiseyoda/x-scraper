@@ -234,8 +234,10 @@ const runMain = async (): Promise<number> => {
         return EXIT_USAGE;
       }
       const modeArg = args.options.get('mode') ?? 'bookmarks-sync';
-      if (modeArg !== 'bookmarks-sync' && modeArg !== 'sync') {
-        console.error(`xs schedule: --mode must be bookmarks-sync|sync (got ${modeArg})`);
+      if (modeArg !== 'bookmarks-sync') {
+        // 'sync' was removed: a static plist can't supply the required
+        // --urls argument, so it would fail on every interval. (Codex P2.)
+        console.error(`xs schedule: --mode must be bookmarks-sync (got ${modeArg})`);
         return EXIT_USAGE;
       }
       const mode: ScheduleMode = modeArg;
