@@ -27,19 +27,19 @@ research surface for a single curator.
 
 ## Tech stack at a glance
 
-| Layer | Pick | Reason |
-|---|---|---|
-| Framework | Next.js 15 (App Router) | RSC + Server Actions kill the API-route-and-fetch dance for an internal tool. |
-| Runtime | Node | better-sqlite3 + neo4j-driver + Claude Agent SDK all need Node APIs. |
-| UI primitives | shadcn/ui (`new-york`), Radix, Tailwind 4 | Standard, ownable code. |
-| Graph viz | Sigma.js v3 + Graphology + `@react-sigma/core` | Only library that holds 50k nodes at 60fps and has a real React story. |
-| Tables | TanStack Table v8 + TanStack Virtual | Server-side pagination via search params; virtualization for >200 rows. |
-| Forms | react-hook-form + Zod (schema reuse with server actions) | Canonical shadcn pattern. |
-| Streaming | Vercel AI SDK v5 (`useChat`) for the wire; `@anthropic-ai/claude-agent-sdk` for the agent loop | AI SDK handles the streaming UX; Agent SDK runs inside a Route Handler. |
-| State | RSC for reads, Server Actions for writes, TanStack Query for client mutations with optimism only when needed | No Redux, no Zustand, no tRPC. |
-| Auth | Bearer token over localhost (`127.0.0.1` bind + middleware) | Personal app, no users. |
-| Theme | `next-themes` + Tailwind dark variants | Default dark for late-night curation. |
-| Workspace | `apps/web-ui` in the existing pnpm monorepo | `apps/*` already in `pnpm-workspace.yaml`. |
+| Layer         | Pick                                                                                                         | Reason                                                                        |
+| ------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| Framework     | Next.js 15 (App Router)                                                                                      | RSC + Server Actions kill the API-route-and-fetch dance for an internal tool. |
+| Runtime       | Node                                                                                                         | better-sqlite3 + neo4j-driver + Claude Agent SDK all need Node APIs.          |
+| UI primitives | shadcn/ui (`new-york`), Radix, Tailwind 4                                                                    | Standard, ownable code.                                                       |
+| Graph viz     | Sigma.js v3 + Graphology + `@react-sigma/core`                                                               | Only library that holds 50k nodes at 60fps and has a real React story.        |
+| Tables        | TanStack Table v8 + TanStack Virtual                                                                         | Server-side pagination via search params; virtualization for >200 rows.       |
+| Forms         | react-hook-form + Zod (schema reuse with server actions)                                                     | Canonical shadcn pattern.                                                     |
+| Streaming     | Vercel AI SDK v5 (`useChat`) for the wire; `@anthropic-ai/claude-agent-sdk` for the agent loop               | AI SDK handles the streaming UX; Agent SDK runs inside a Route Handler.       |
+| State         | RSC for reads, Server Actions for writes, TanStack Query for client mutations with optimism only when needed | No Redux, no Zustand, no tRPC.                                                |
+| Auth          | Bearer token over localhost (`127.0.0.1` bind + middleware)                                                  | Personal app, no users.                                                       |
+| Theme         | `next-themes` + Tailwind dark variants                                                                       | Default dark for late-night curation.                                         |
+| Workspace     | `apps/web-ui` in the existing pnpm monorepo                                                                  | `apps/*` already in `pnpm-workspace.yaml`.                                    |
 
 ## Layout (planned)
 
@@ -85,7 +85,7 @@ selection changes.
   width 1024px. Graceful degradation OK.
 - Editing source body content via the UI. Vault remains the
   authoritative store; edits happen in Obsidian and round-trip via git
-  pull. The UI can edit *frontmatter* (tags, topics) and merge/split
-  *entities*.
+  pull. The UI can edit _frontmatter_ (tags, topics) and merge/split
+  _entities_.
 - Replacing `xs-mcp`. The MCP server stays for editor/CLI integration.
   The web UI calls TS modules directly.

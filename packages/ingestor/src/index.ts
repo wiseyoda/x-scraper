@@ -14,7 +14,12 @@ export { ingest, selectIngestor } from './dispatcher.js';
 export type { FetchLike, FetchOptions } from './http.js';
 export { fetchJsonWithTimeout, fetchTextWithTimeout } from './http.js';
 export type { PdfConfig } from './pdf.js';
-export { createPdfIngestor, DEFAULT_PDF_MAX_PAGES, extractPdfText } from './pdf.js';
+export {
+  createPdfIngestor,
+  DEFAULT_PDF_MAX_PAGES,
+  extractPdfPagesText,
+  extractPdfText,
+} from './pdf.js';
 export type { RepoConfig } from './repo.js';
 export { createRepoIngestor, parseGitHubUrl } from './repo.js';
 export type { IngestedSource, Ingestor, IngestorErrorCode } from './types.js';

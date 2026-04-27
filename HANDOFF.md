@@ -94,17 +94,17 @@
 
 ### Backed-off ramp (steps 1, 2, 4, 8, 16, 32, 64, 128)
 
-| Step | succeeded | failed/dead | duration | cost |
-|------|-----------|-------------|----------|------|
-| 1 oldest | 1 (t.co stub) | 0 | <1s | $0.00 |
-| 1 newest | 1 (X Article smoke) | 0 | 135s | $0.116 |
-| 2  | 2  | 0 | 24s   | $0.031 |
-| 4  | 4  | 0 | 27s   | $0.042 |
-| 8  | 8  | 0 | 30s   | $0.046 |
-| 16 | 16 | 0 | 130s  | $0.192 |
-| 32 | 32 | 0 | 413s  | $0.615 |
-| 64 | 64 | 0 | ~10m  | $1.284 |
-| 128 | 103 | 25 dead (t.co bug) | ~32m | $4.74 |
+| Step     | succeeded           | failed/dead        | duration | cost   |
+| -------- | ------------------- | ------------------ | -------- | ------ |
+| 1 oldest | 1 (t.co stub)       | 0                  | <1s      | $0.00  |
+| 1 newest | 1 (X Article smoke) | 0                  | 135s     | $0.116 |
+| 2        | 2                   | 0                  | 24s      | $0.031 |
+| 4        | 4                   | 0                  | 27s      | $0.042 |
+| 8        | 8                   | 0                  | 30s      | $0.046 |
+| 16       | 16                  | 0                  | 130s     | $0.192 |
+| 32       | 32                  | 0                  | 413s     | $0.615 |
+| 64       | 64                  | 0                  | ~10m     | $1.284 |
+| 128      | 103                 | 25 dead (t.co bug) | ~32m     | $4.74  |
 
 After step 128: all 200 organic synced + 31 derived synced + 154
 derived pending + 25 dead.
@@ -150,7 +150,7 @@ Next.js patterns). 4-phase ROADMAP, ~5–7 days build.
 
 - **First smoke ingest produced bad data** because `dist/` was stale
   relative to `feat/bookmark-ledger`'s recent commits. The X Article
-  ingest ran *old* code that wrote `sources/src_*.md` flat instead of
+  ingest ran _old_ code that wrote `sources/src_*.md` flat instead of
   `sources/articles/`, and missed the byline + body-structure fixes
   entirely. **Caught** by walking the produced files. **Fixed** by
   `pnpm build`, deleting the stale stub, resetting the ledger row,
@@ -195,7 +195,7 @@ Next.js patterns). 4-phase ROADMAP, ~5–7 days build.
 - **Codex review on main** (not branch — branch is gone). Recreate
   the worktree via `git worktree add`. Last review was on `e83c8bc`;
   main is now at `85ac4e7` with three additional fixup commits
-  + the docs + handoff that codex hasn't seen.
+  - the docs + handoff that codex hasn't seen.
 
 ## Traps for Next Session
 
@@ -226,35 +226,45 @@ Next.js patterns). 4-phase ROADMAP, ~5–7 days build.
    `packages/cli/src/commands/sync/stages.ts:enqueueEntityLinkDerivedRows`,
    add a hostname check alongside the existing `X_TWEET_URL_RE.test(canonical)`
    skip:
+
    ```ts
    if (X_TWEET_URL_RE.test(canonical)) continue;
    try {
      if (new URL(canonical).hostname === 't.co') continue;
-   } catch { continue; }
+   } catch {
+     continue;
+   }
    ```
+
    Run `pnpm typecheck && pnpm test packages/cli && pnpm build`.
    Expected: 332 tests still pass.
 
 2. **Drain remaining derived rows.** With the t.co guard in:
+
    ```bash
    /opt/homebrew/bin/node packages/cli/dist/bin.js bookmarks sync --order=oldest --limit=128
    ```
+
    Then again at `--limit=128` if rows remain. Expected: most rows
    succeed (articles + repos + videos); failure rate near 0%.
 
 3. **`xs topic detect --synthesize`.** Now that the graph is rich,
    Louvain should find real communities with Sonnet-titled topics.
+
    ```bash
    /opt/homebrew/bin/node packages/cli/dist/bin.js topic detect --synthesize
    ```
+
    Expected: 5–15 topics each with 5–30 member concepts.
 
 4. **Codex review on main.**
+
    ```bash
    git worktree add /Users/ppatterson/Working/x-scraper-codex-review main
    cd /Users/ppatterson/Working/x-scraper-codex-review
    codex review --base main > /Users/ppatterson/Working/x-scraper/.repostat/codex-review/run-$(date +%Y%m%d-%H%M%S).log 2>&1 &
    ```
+
    Expected: a few P2s, mostly cosmetic since main just had two codex
    passes.
 

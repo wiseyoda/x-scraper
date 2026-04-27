@@ -33,6 +33,7 @@ const MAX_REPORTED_ISSUES = 3;
 
 const DEFAULT_GITIGNORE = `# x-scraper vault gitignore — keep secrets out
 .xscraper/
+.cache/
 .env
 .env.*
 *.log

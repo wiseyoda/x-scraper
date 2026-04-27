@@ -16,6 +16,7 @@ import { runCost } from './commands/cost.js';
 import { type CheckStatus, runDoctor } from './commands/doctor.js';
 import { runInit } from './commands/init.js';
 import { MCP_CLIENTS, type McpClient, runMcpRegister } from './commands/mcp-register.js';
+import { runRefine } from './commands/refine.js';
 import { runReindex } from './commands/reindex.js';
 import { runReview } from './commands/review.js';
 import {
@@ -51,6 +52,9 @@ Commands:
        [--dry-run]                  Skip the update_graph stage
   reindex --from-vault [--limit=N]  Rebuild the graph from existing vault markdown
        [--max-attempts=N]
+  refine [--content-type=KIND]      Re-run extraction over already-captured sources (offline)
+       [--source=<source-id>]        Refine a single source by id
+       [--limit=N] [--max-attempts=N]
   auth login [--profile-dir=DIR]    Open an authenticated x.com session (Patchright)
   bookmarks pull                    Pull bookmarks/likes/posts from x.com into the ledger
        [--source=bookmarks|likes|posts]
@@ -300,6 +304,52 @@ const runMain = async (): Promise<number> => {
         for (const p of c.paths) console.log(`    ${p}`);
       }
       return EXIT_OK;
+    }
+    case 'refine': {
+      const limitStr = args.options.get('limit');
+      const maxAttemptsStr = args.options.get('max-attempts');
+      const contentTypeArg = args.options.get('content-type');
+      const VALID_CONTENT_TYPES = [
+        'article',
+        'repo',
+        'youtube',
+        'pdf',
+        'x_article',
+        'tweet',
+      ] as const;
+      type ContentType = (typeof VALID_CONTENT_TYPES)[number];
+      if (
+        contentTypeArg !== undefined &&
+        !(VALID_CONTENT_TYPES as readonly string[]).includes(contentTypeArg)
+      ) {
+        console.error(
+          `xs refine: --content-type must be one of ${VALID_CONTENT_TYPES.join('|')} (got ${contentTypeArg})`,
+        );
+        return EXIT_USAGE;
+      }
+      const sourceIdArg = args.options.get('source');
+      const wired = await wireSyncDeps(
+        {
+          envFilePath: ENV_FILE_PATH,
+          vaultDir: config.vaultDir,
+          queuePath: config.queuePath,
+        },
+        [],
+      );
+      try {
+        const result = await runRefine(wired.deps, {
+          ...(contentTypeArg === undefined ? {} : { contentType: contentTypeArg as ContentType }),
+          ...(sourceIdArg === undefined ? {} : { sourceId: sourceIdArg }),
+          ...(limitStr === undefined ? {} : { limit: Number(limitStr) }),
+          ...(maxAttemptsStr === undefined ? {} : { maxAttempts: Number(maxAttemptsStr) }),
+        });
+        console.log(
+          `refine ${result.runId}: scanned=${String(result.capturesScanned)} refined=${String(result.capturesRefined)} done=${String(result.jobsCompleted)} dead=${String(result.jobsDead)} failed=${String(result.jobsFailed)} cost=$${result.totalCostUsd.toFixed(4)} duration=${String(result.durationMs)}ms`,
+        );
+        return result.jobsDead > 0 ? EXIT_FAIL : EXIT_OK;
+      } finally {
+        await wired.cleanup();
+      }
     }
     case 'reindex': {
       if (!args.flags.has('from-vault')) {

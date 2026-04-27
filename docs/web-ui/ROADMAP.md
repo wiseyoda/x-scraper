@@ -11,6 +11,7 @@ a placeholder page on `localhost:3000`, can read from Neo4j and the
 queue, has shadcn primitives installed and Tailwind 4 configured.
 
 Tasks:
+
 - Create `apps/web-ui/` Next.js 15 app via `pnpm dlx create-next-app@latest --typescript --tailwind --app --src-dir --no-eslint`. Use eslint flat config from the repo's existing setup.
 - Add to `pnpm-workspace.yaml`. Already covered by `apps/*`.
 - Add workspace deps: `@x-scraper/core`, `@x-scraper/graph`, `@x-scraper/vault`, `@x-scraper/queue`, `@x-scraper/llm`, `@x-scraper/embeddings`, `@x-scraper/extractor`, `@x-scraper/reconciler`, `@x-scraper/ingestor`, `@x-scraper/community`, `@x-scraper/observability`.
@@ -203,6 +204,7 @@ higher-leverage starting point.
 ## After "this week"
 
 The deferred list becomes the next backlog. Likely top-of-list:
+
 - Timeline scrubber (because by then the corpus has 6+ months of
   bi-temporal data and the value is high).
 - Curation mode (drag-to-pin, edit topic membership manually).

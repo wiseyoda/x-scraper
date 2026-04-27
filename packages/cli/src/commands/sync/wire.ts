@@ -9,19 +9,21 @@
 import * as fs from 'node:fs';
 
 import Anthropic from '@anthropic-ai/sdk';
+import {
+  type Captor,
+  type CaptureStore,
+  createArticleCaptor,
+  createCaptureStore,
+  createPdfCaptor,
+  createRepoCaptor,
+  createXArticleCaptor,
+  createYouTubeCaptor,
+  type XArticleCaptorSession,
+} from '@x-scraper/capture';
 import { canonicalizeUrl, entityId } from '@x-scraper/core';
 import type { CostSink } from '@x-scraper/embeddings';
 import { createGeminiEmbedding } from '@x-scraper/embeddings';
 import { createNeo4jGraph } from '@x-scraper/graph';
-import {
-  createArticleIngestor,
-  createPdfIngestor,
-  createRepoIngestor,
-  createXArticleIngestor,
-  createYouTubeIngestor,
-  type Ingestor,
-  type XArticleSession,
-} from '@x-scraper/ingestor';
 import type { LlmCostSink } from '@x-scraper/llm';
 import { createClaudeProvider } from '@x-scraper/llm';
 import { createLogger, jsonLineSink } from '@x-scraper/observability';
@@ -123,29 +125,31 @@ export const wireSyncDeps = async (
   });
 
   const githubToken = process.env.GITHUB_TOKEN ?? env.GITHUB_TOKEN;
-  // X Article ingestor (T14): Patchright-rendered SPA scrape for
-  // x.com/<user>/article/<id> URLs. Order BEFORE the generic article
-  // ingestor so it wins the matches() race for x.com URLs. The session
-  // is opened lazily — first matching URL triggers a Patchright launch.
-  const xArticleIngestor = createXArticleIngestor({
-    openSession: async (): Promise<XArticleSession> => {
+  // Captors run BEFORE the existing pipeline (capture-first architecture).
+  // X-article first so x.com/<user>/article/<id> doesn't get scraped as
+  // a generic web page. PDF and Repo before Article so URL-pattern routing
+  // wins over the catch-all. The X-article session is opened lazily on
+  // the first matching URL.
+  const xArticleCaptor = createXArticleCaptor({
+    openSession: async (): Promise<XArticleCaptorSession> => {
       const profileDir =
         process.env.XSCRAPER_PROFILE_DIR ??
         `${process.env.HOME ?? ''}/.config/x-scraper/browser-profile`;
       const session = await openAuthenticatedSession({ profileDir });
       return {
-        page: session.page as unknown as XArticleSession['page'],
+        page: session.page as unknown as XArticleCaptorSession['page'],
         close: () => closeSession(session),
       };
     },
   });
-  const ingestors: Ingestor[] = [
-    xArticleIngestor,
-    createPdfIngestor(),
-    createRepoIngestor(githubToken === undefined ? {} : { token: githubToken }),
-    createYouTubeIngestor(),
-    createArticleIngestor(),
+  const captors: Captor[] = [
+    xArticleCaptor,
+    createPdfCaptor(),
+    createRepoCaptor(githubToken === undefined ? {} : { token: githubToken }),
+    createYouTubeCaptor(),
+    createArticleCaptor(),
   ];
+  const captureStore: CaptureStore = createCaptureStore({ vaultDir: config.vaultDir });
 
   const erFinder: ErCandidateFinder = {
     findCandidates: async (type, embedding, k) => {
@@ -189,7 +193,8 @@ export const wireSyncDeps = async (
     graph,
     embeddings,
     llm,
-    ingestors,
+    captors,
+    captureStore,
     logger,
     erFinder,
     claimFinder,
@@ -199,11 +204,11 @@ export const wireSyncDeps = async (
   const cleanup = async (): Promise<void> => {
     queue.close();
     await graph.close();
-    // Release any long-lived ingestor resources (Patchright session for
-    // the x-article ingestor, etc).
-    for (const ing of ingestors) {
-      if (ing.dispose !== undefined) {
-        await ing.dispose().catch(() => undefined);
+    // Release any long-lived captor resources (Patchright session for
+    // the x-article captor, etc).
+    for (const c of captors) {
+      if (c.dispose !== undefined) {
+        await c.dispose().catch(() => undefined);
       }
     }
   };

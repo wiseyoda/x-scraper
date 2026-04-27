@@ -7,7 +7,7 @@ the web app to power read-mode research and write-mode ingest.
 
 The web app surfaces two user-initiated agent flows; both share the
 same `query()` loop and the same in-process MCP tool catalog. The
-difference is which tools are *allowed*.
+difference is which tools are _allowed_.
 
 ### Read flow — "ask the corpus"
 
@@ -18,6 +18,7 @@ chips ("see [[src_a1b2c3d4]]"). Budgeted small (`maxBudgetUsd: 0.10`,
 `maxTurns: 10`).
 
 Examples:
+
 - "What did anyone say about Patchright last month?"
 - "Summarize the closed-loop architecture from the OpenClaw article."
 - "Which entities are most often co-mentioned with `claude-code`?"
@@ -32,6 +33,7 @@ graph to verify the new content landed correctly. Larger budget
 (`maxBudgetUsd: 1.00`, `maxTurns: 30`).
 
 Examples:
+
 - "Pull this github repo and any recent posts that mention it."
 - "I just bookmarked 5 X posts about agent frameworks — process them
   and tell me which themes are new."
@@ -81,27 +83,27 @@ on every read tool so the SDK can parallelize them.
 
 ### Read tools (always allowed)
 
-| Tool | Input | Output | Backed by |
-|---|---|---|---|
-| `search_graph_text` | query: string, type?: EntityType, limit: number | rows of {id, type, name, score, snippet} | hybrid Cypher + vector search via `@x-scraper/graph` |
-| `vector_search_entities` | text: string, type?, limit | rows of {id, type, name, score} | `graph.vectorSearch()` over `entity_embed_idx` |
-| `read_source` | id: string | full Source.md frontmatter + body | `vault.read(id, 'Source')` |
-| `read_entity` | id: string | full Entity.md (with sources backlinks) | `vault.read(id, type)` |
-| `read_claim` | id: string | full Claim.md | `vault.read(id, 'Claim')` |
-| `traverse` | startId: string, depth: number, edgeTypes?: EdgeType[] | walk steps | `graph.traverse()` |
-| `cypher_read` | query: string (read-only enforced), params: object | rows | `graph.runReadCypher()` (new method, blocks writes) |
-| `xs_status` | — | queue counts | `queue.stats()` |
-| `xs_trends` | topN: number | trends snapshot | `runTrends()` |
+| Tool                     | Input                                                  | Output                                   | Backed by                                            |
+| ------------------------ | ------------------------------------------------------ | ---------------------------------------- | ---------------------------------------------------- |
+| `search_graph_text`      | query: string, type?: EntityType, limit: number        | rows of {id, type, name, score, snippet} | hybrid Cypher + vector search via `@x-scraper/graph` |
+| `vector_search_entities` | text: string, type?, limit                             | rows of {id, type, name, score}          | `graph.vectorSearch()` over `entity_embed_idx`       |
+| `read_source`            | id: string                                             | full Source.md frontmatter + body        | `vault.read(id, 'Source')`                           |
+| `read_entity`            | id: string                                             | full Entity.md (with sources backlinks)  | `vault.read(id, type)`                               |
+| `read_claim`             | id: string                                             | full Claim.md                            | `vault.read(id, 'Claim')`                            |
+| `traverse`               | startId: string, depth: number, edgeTypes?: EdgeType[] | walk steps                               | `graph.traverse()`                                   |
+| `cypher_read`            | query: string (read-only enforced), params: object     | rows                                     | `graph.runReadCypher()` (new method, blocks writes)  |
+| `xs_status`              | —                                                      | queue counts                             | `queue.stats()`                                      |
+| `xs_trends`              | topN: number                                           | trends snapshot                          | `runTrends()`                                        |
 
 ### Write tools (allowed in `write` mode only)
 
-| Tool | Input | Output | Backed by |
-|---|---|---|---|
-| `ingest_url` | url: string | summary {sourceId, claims, entities, costUsd} | `runSync({ urls: [url] })` |
-| `fetch_web_text` | url: string | rendered text + title (no graph write) | `ingest()` from `packages/ingestor` (article ingestor) |
-| `search_web` | query: string, providers? | search results | `@x-scraper/search` (Exa/Tavily/Brave) |
-| `merge_entities` | aId: string, bId: string | merged graph + vault state | new method on `EntityMerger` |
-| `retag_source` | sourceId: string, tags: string[] | updated frontmatter | direct vault write + git commit |
+| Tool             | Input                            | Output                                        | Backed by                                              |
+| ---------------- | -------------------------------- | --------------------------------------------- | ------------------------------------------------------ |
+| `ingest_url`     | url: string                      | summary {sourceId, claims, entities, costUsd} | `runSync({ urls: [url] })`                             |
+| `fetch_web_text` | url: string                      | rendered text + title (no graph write)        | `ingest()` from `packages/ingestor` (article ingestor) |
+| `search_web`     | query: string, providers?        | search results                                | `@x-scraper/search` (Exa/Tavily/Brave)                 |
+| `merge_entities` | aId: string, bId: string         | merged graph + vault state                    | new method on `EntityMerger`                           |
+| `retag_source`   | sourceId: string, tags: string[] | updated frontmatter                           | direct vault write + git commit                        |
 
 ### Tool definition example
 
@@ -140,10 +142,12 @@ export const ingestUrl = tool(
     try {
       const result = await runAdHocSync({ url, sourceKind });
       return {
-        content: [{
-          type: 'text',
-          text: `Ingested ${url}\n  source_id: ${result.sourceId}\n  claims: ${result.claims}\n  entities: ${result.entities}\n  cost: $${result.costUsd.toFixed(4)}`,
-        }],
+        content: [
+          {
+            type: 'text',
+            text: `Ingested ${url}\n  source_id: ${result.sourceId}\n  claims: ${result.claims}\n  entities: ${result.entities}\n  cost: $${result.costUsd.toFixed(4)}`,
+          },
+        ],
       };
     } catch (err) {
       return {
@@ -195,7 +199,11 @@ export async function POST(req: Request) {
           if (msg.type === 'result') {
             totalCost = msg.total_cost_usd ?? 0;
             await persistSession(msg.session_id, { totalCost, toolCalls, prompt });
-          } else if (msg.type === 'stream_event' && msg.event.type === 'content_block_start' && msg.event.content_block?.type === 'tool_use') {
+          } else if (
+            msg.type === 'stream_event' &&
+            msg.event.type === 'content_block_start' &&
+            msg.event.content_block?.type === 'tool_use'
+          ) {
             toolCalls.push({
               name: msg.event.content_block.name,
               startedAt: Date.now(),

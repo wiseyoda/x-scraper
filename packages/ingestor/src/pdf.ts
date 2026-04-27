@@ -105,6 +105,47 @@ interface PdfDocument {
 
 const itemText = (item: PdfTextItem): string => (typeof item.str === 'string' ? item.str : '');
 
+/**
+ * Per-page text extraction. Capture layer uses this to store the
+ * structure separately from the joined body that the LLM extractor
+ * sees. Returns one string per page (may be empty for image-only).
+ */
+export const extractPdfPagesText = async (
+  bytes: Uint8Array,
+  url: string,
+  maxPages: number = DEFAULT_PDF_MAX_PAGES,
+): Promise<string[]> => {
+  let doc: PdfDocument | undefined;
+  try {
+    const data = new Uint8Array(bytes.byteLength);
+    data.set(bytes);
+    const loadingTask = getDocument({ data, useSystemFonts: false }) as unknown as {
+      promise: Promise<PdfDocument>;
+    };
+    doc = await loadingTask.promise;
+    const pages: string[] = [];
+    const limit = Math.min(doc.numPages, maxPages);
+    for (let i = 1; i <= limit; i += 1) {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      const items = content.items ?? [];
+      const pageText = items
+        .map((it) => itemText(it))
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      pages.push(pageText);
+      page.cleanup?.();
+    }
+    return pages;
+  } catch (err) {
+    if (err instanceof IngestorError) throw err;
+    throw new IngestorError(`PDF parse failed for ${url}`, 'PARSE', { cause: err, url });
+  } finally {
+    await doc?.destroy().catch(() => undefined);
+  }
+};
+
 export const extractPdfText = async (
   bytes: Uint8Array,
   url: string,

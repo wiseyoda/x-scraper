@@ -5,6 +5,7 @@
  * routes it to queue.failStage.
  */
 
+import { buildTweetCapture, captureWithCache, toIngestedSource } from '@x-scraper/capture';
 import type { Frontmatter } from '@x-scraper/core';
 import { canonicalizeUrl, contentHash, entityId } from '@x-scraper/core';
 import { extract, EXTRACTION_PROMPT_VERSION } from '@x-scraper/extractor';
@@ -155,9 +156,22 @@ export const fetchLinksStage = async (deps: SyncDeps, ctx: JobContext): Promise<
 
 export const extractTextStage = async (deps: SyncDeps, ctx: JobContext): Promise<void> => {
   const now = (deps.now ?? ((): Date => new Date()))().toISOString();
-  // Pre-fetched body short-circuit: e.g. tweet text already in hand from
-  // the scraper, no external fetch needed.
+  // Pre-fetched body short-circuit (tweet text already pulled by the
+  // scraper). Persist it as a TweetCaptured so refine sees it the same
+  // as any other source.
   if (ctx.source.body !== undefined && ctx.source.body.length > 0) {
+    const tweetCaptured = buildTweetCapture(
+      {
+        url: ctx.source.url,
+        text: ctx.source.body,
+        title: ctx.source.title ?? null,
+        byline: ctx.source.byline ?? null,
+      },
+      deps.now ?? ((): Date => new Date()),
+    );
+    if (deps.captureStore !== undefined) {
+      await deps.captureStore.write(tweetCaptured);
+    }
     ctx.ingested = {
       body: ctx.source.body,
       title: ctx.source.title ?? null,
@@ -167,6 +181,37 @@ export const extractTextStage = async (deps: SyncDeps, ctx: JobContext): Promise
       metadata: {},
     };
     return;
+  }
+
+  // Production capture path: read-through cache. Re-runs are network-free.
+  if (deps.captureStore !== undefined && deps.captors !== undefined) {
+    const { captured, fromCache } = await captureWithCache(
+      ctx.source.url,
+      deps.captors,
+      deps.captureStore,
+    );
+    deps.logger.info('sync.capture.resolved', {
+      sourceId: ctx.source.sourceId,
+      url: captured.canonical_url,
+      contentType: captured.content_type,
+      fromCache,
+    });
+    const ingested = toIngestedSource(captured);
+    ctx.ingested = {
+      body: ingested.body,
+      title: ingested.title,
+      byline: ingested.byline,
+      capturedAt: ingested.capturedAt,
+      contentType: inferContentType(ctx.source.url),
+      metadata: ingested.metadata,
+    };
+    return;
+  }
+
+  // Legacy ingestor fallback (unit tests stub a single passthrough ingestor
+  // here; production no longer takes this path).
+  if (deps.ingestors === undefined || deps.ingestors.length === 0) {
+    throw new Error('extract_text: no captors or ingestors wired');
   }
   const result = await ingest(ctx.source.url, deps.ingestors);
   ctx.ingested = {
@@ -325,6 +370,15 @@ const enqueueEntityLinkDerivedRows = (deps: SyncDeps, ctx: JobContext): void => 
       seen.add(canonical);
       if (canonical === ctx.source.url) continue;
       if (X_TWEET_URL_RE.test(canonical)) continue;
+      // Don't enqueue t.co shortlinks — Readability gets nothing from
+      // them and they aren't canonical URLs anyway. The body's URL_RE
+      // already drops them; this guard handles the alias path that
+      // discovered them inside an entity's URL alias list.
+      try {
+        if (new URL(canonical).hostname === 't.co') continue;
+      } catch {
+        continue;
+      }
       if (deps.queue.findBookmarkBySourceUrl(canonical) !== null) continue;
       const result = deps.queue.upsertBookmark({
         entryId: `derived_${entityId('Source', canonical)}`,
@@ -812,10 +866,15 @@ const STAGE_HANDLERS: Record<Stage, (deps: SyncDeps, ctx: JobContext) => Promise
 export const stageHandlers = (
   options: SyncOptions = {},
 ): Record<Stage, (deps: SyncDeps, ctx: JobContext) => Promise<void>> => {
-  if (options.skipGraph !== true && options.skipVault !== true) return STAGE_HANDLERS;
-  // Dry-run / reindex modes: substitute a no-op for whichever stage the
-  // caller wants to skip. update_graph is owned by `xs sync --dry-run`;
-  // write_vault is owned by `xs reindex` (the vault is its source of truth).
+  if (options.skipGraph !== true && options.skipVault !== true && options.skipFetchLinks !== true) {
+    return STAGE_HANDLERS;
+  }
+  // Dry-run / reindex / refine modes: substitute a no-op for whichever
+  // stage the caller wants to skip. update_graph is owned by
+  // `xs sync --dry-run`; write_vault is owned by `xs reindex`;
+  // fetch_links is owned by `xs refine` (re-running extraction over an
+  // existing capture should never re-discover derived rows — those were
+  // captured at the original sync).
   const noop = async (): Promise<void> => {
     await Promise.resolve();
   };
@@ -823,6 +882,7 @@ export const stageHandlers = (
     ...STAGE_HANDLERS,
     ...(options.skipGraph === true ? { update_graph: noop } : {}),
     ...(options.skipVault === true ? { write_vault: noop } : {}),
+    ...(options.skipFetchLinks === true ? { fetch_links: noop } : {}),
   };
 };
 

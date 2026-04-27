@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",
+    "@x-scraper/capture": "workspace:*",
     "@x-scraper/community": "workspace:*",
     "@x-scraper/core": "workspace:*",
     "@x-scraper/digest": "workspace:*",

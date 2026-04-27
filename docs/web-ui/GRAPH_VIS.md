@@ -25,7 +25,7 @@ reasons, ranked:
 3. **Heterogeneous node typing fits the reducer pattern.** Sigma's
    "reducer" lets us mutate per-frame node/edge attributes from UI
    state without touching the underlying graph: `setSettings({
-   nodeReducer: (n, attrs) => ({ ...attrs, color: colorFor(attrs.type, filterState) }) })`.
+nodeReducer: (n, attrs) => ({ ...attrs, color: colorFor(attrs.type, filterState) }) })`.
    Filter / focus / search-highlight all become pure functions of UI
    state, not graph mutations.
 
@@ -34,26 +34,26 @@ WebGL setup each) for the topic-halo overlay and per-type icons.
 
 ### What we're not picking and why
 
-| Considered | Reason for skipping |
-|---|---|
-| Cytoscape.js | Canvas perf cap. React story is imperative-via-`react-cytoscapejs` wrapper, weaker than `@react-sigma/core`. |
-| React Flow / @xyflow | DOM-per-node — fine for diagrams (≤2k), wrong shape for an explorer. License OK for OSS but Pro features sneak in. |
-| vis-network | Old, no real React wrapper, perf falls off ~3k. |
-| ECharts | "Just a chart with a graph type." Constrained styling, big bundle. |
-| D3-force from scratch | We'd rebuild Sigma. |
-| Neo4j NVL | License ties to Neo4j Enterprise — disqualifying. |
+| Considered            | Reason for skipping                                                                                                |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Cytoscape.js          | Canvas perf cap. React story is imperative-via-`react-cytoscapejs` wrapper, weaker than `@react-sigma/core`.       |
+| React Flow / @xyflow  | DOM-per-node — fine for diagrams (≤2k), wrong shape for an explorer. License OK for OSS but Pro features sneak in. |
+| vis-network           | Old, no real React wrapper, perf falls off ~3k.                                                                    |
+| ECharts               | "Just a chart with a graph type." Constrained styling, big bundle.                                                 |
+| D3-force from scratch | We'd rebuild Sigma.                                                                                                |
+| Neo4j NVL             | License ties to Neo4j Enterprise — disqualifying.                                                                  |
 
 ## Visual encoding
 
-| Channel | Encodes | Notes |
-|---|---|---|
-| Color | Entity type (default) OR topic membership (toggle) OR recency (toggle) | Single radio in left rail switches between modes. |
-| Size | Degree (in + out) on a log scale | Capped at 30px so super-hubs don't dominate. |
-| Border | Selected / hovered | 2px white border on hover, 3px accent on selected. |
-| Halo | Topic community membership | Faint filled circle behind the node, color by topic, 60% opacity. Only when "color-by topic" mode is off. |
-| Edge color | Edge type | Subtle palette; cooccurrence edges are 30% opacity so they don't dominate. |
-| Edge width | `cooccurrence_count` (for RELATED_TO) or 1 (for everything else) | Cap at 5px. |
-| Icon | Entity sub-type (when zoomed in) | Lucide icons rendered as SVG-to-WebGL via `@sigma/node-image`. |
+| Channel    | Encodes                                                                | Notes                                                                                                     |
+| ---------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Color      | Entity type (default) OR topic membership (toggle) OR recency (toggle) | Single radio in left rail switches between modes.                                                         |
+| Size       | Degree (in + out) on a log scale                                       | Capped at 30px so super-hubs don't dominate.                                                              |
+| Border     | Selected / hovered                                                     | 2px white border on hover, 3px accent on selected.                                                        |
+| Halo       | Topic community membership                                             | Faint filled circle behind the node, color by topic, 60% opacity. Only when "color-by topic" mode is off. |
+| Edge color | Edge type                                                              | Subtle palette; cooccurrence edges are 30% opacity so they don't dominate.                                |
+| Edge width | `cooccurrence_count` (for RELATED_TO) or 1 (for everything else)       | Cap at 5px.                                                                                               |
+| Icon       | Entity sub-type (when zoomed in)                                       | Lucide icons rendered as SVG-to-WebGL via `@sigma/node-image`.                                            |
 
 Color palette is generated from a categorical scheme (`d3-scale-chromatic`'s `schemeTableau10` or similar) frozen into Tailwind theme tokens for consistency across the app.
 
@@ -69,7 +69,7 @@ Color palette is generated from a categorical scheme (`d3-scale-chromatic`'s `sc
 - Optional: **DAG / hierarchical** for tracing Source → Claim → Entity
   derivations of a single source. Use `dagre` via Graphology.
 - Saved view captures `{ layoutSeed, settings, filters, focusNode,
-  depth, colorBy }` so re-opening a view always lands in the same
+depth, colorBy }` so re-opening a view always lands in the same
   visual state.
 
 ## Interaction patterns
@@ -187,7 +187,7 @@ re-rendered when layout changes.
 ## Gotchas
 
 1. **`@react-sigma/core` and SSR:** must be `dynamic(() => import,
-   { ssr: false })`. Direct import from a Server Component crashes the
+{ ssr: false })`. Direct import from a Server Component crashes the
    server.
 2. **ForceAtlas2 in a worker:** `graphology-layout-forceatlas2/worker`
    exists; use it. Running 500+ iterations on the main thread blocks

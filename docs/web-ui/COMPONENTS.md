@@ -49,6 +49,7 @@ encodes graph/vault semantics.
 Renders an entity for any list/grid context. Composes `Card`, `Badge`
 (for type), `HoverCard` (for full body preview on hover), `Button`
 (for actions like "merge", "view in graph"). Variants:
+
 - `compact` — single line, type icon + name + degree. For sidebar
   search results.
 - `default` — card with name, type badge, alias chips, source count,
@@ -65,6 +66,7 @@ Renders an entity for any list/grid context. Composes `Card`, `Badge`
 A single claim row showing subject • predicate • object as a
 visually-parsed triplet, plus confidence as a `Progress` bar, plus a
 source pill if present. Used in:
+
 - the source detail page (all claims from this source)
 - the entity detail page (all claims about this entity)
 - the agent chat tool-call rendering (when a tool returns claims)
@@ -89,6 +91,7 @@ opens topic page with member list.
 
 Renders a USD cost in a colored badge: green ($<0.01), yellow
 ($0.01–0.10), orange ($0.10–1.00), red (>$1.00). Used for:
+
 - agent session cost
 - per-bookmark sync cost
 - topic detection cost
@@ -151,6 +154,7 @@ custom hooks.
 ### `<GraphCanvas initial={serialized} />`
 
 Wraps `<SigmaContainer>` with our default settings. Hosts:
+
 - `<GraphLayoutController>` — runs ForceAtlas2 in a worker before
   first paint.
 - `<GraphReducerSync>` — wires URL state and filter UI to Sigma's
@@ -194,9 +198,10 @@ whatever's selected on the graph.
 ### `<AgentMessage message />`
 
 Renders one message. Variants:
+
 - `user` — right-aligned bubble, plain text.
 - `assistant` — left-aligned, markdown-rendered (via `react-markdown`
-  + `remark-gfm`), citation chips for `[[src_X]]` references.
+  - `remark-gfm`), citation chips for `[[src_X]]` references.
 - `tool_call` — collapsible "Used tool: search_graph_text" with input
   args + output preview.
 - `system` — small status line ("Resumed session abc123…").
@@ -255,7 +260,7 @@ exist to keep the page files readable.
   `getSources(params)`, renders `<SourceTable>` (client) with TanStack
   Table.
 - `<EntityDetailSection entityId />` — header (`<EntityCard
-  variant="expanded">`) + claims list + sources list + graph
+variant="expanded">`) + claims list + sources list + graph
   neighborhood preview.
 - `<TopicCommunitySection topicId />` — topic name + members + an
   embedded mini-graph showing just this topic's nodes.

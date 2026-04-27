@@ -177,11 +177,7 @@ expensive resources on `globalThis`:
 import neo4j, { type Driver } from 'neo4j-driver';
 const g = globalThis as unknown as { __xs_neo4j?: Driver };
 export const driver =
-  g.__xs_neo4j ??
-  neo4j.driver(
-    env.NEO4J_URI,
-    neo4j.auth.basic(env.NEO4J_USER, env.NEO4J_PASSWORD),
-  );
+  g.__xs_neo4j ?? neo4j.driver(env.NEO4J_URI, neo4j.auth.basic(env.NEO4J_USER, env.NEO4J_PASSWORD));
 if (env.NODE_ENV !== 'production') g.__xs_neo4j = driver;
 ```
 
@@ -200,7 +196,7 @@ hot-reload works.
 - `middleware.ts` checks `authorization: Bearer <token>` against
   `XS_WEB_TOKEN` env var on every `/api/*` route.
 - `/login` page sets a `xs_token` httpOnly cookie via a Server Action;
-  middleware accepts header *or* cookie.
+  middleware accepts header _or_ cookie.
 - Mirrors `XSCRAPER_REST_ALLOW_UNAUTH=1` escape hatch from `xs-rest` —
   fail-closed by default.
 
@@ -219,6 +215,7 @@ explicit invalidation:
 ## CI integration
 
 Add `apps/web-ui` to:
+
 - `.github/workflows/ci.yml` — already runs `pnpm install`, `pnpm build`,
   `pnpm lint`, `pnpm typecheck`, `pnpm test`. Web-ui adds nothing
   workflow-side; it just gets covered by the existing matrix.

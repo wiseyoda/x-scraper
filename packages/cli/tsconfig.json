@@ -9,6 +9,7 @@
   "include": ["src/**/*.ts"],
   "exclude": ["dist", "node_modules", "**/*.test.ts"],
   "references": [
+    { "path": "../capture" },
     { "path": "../community" },
     { "path": "../core" },
     { "path": "../embeddings" },

@@ -7,6 +7,7 @@
  * for the graph, simple-git via the vault, etc).
  */
 
+import type { Captor, CaptureStore } from '@x-scraper/capture';
 import type { EntityType, SourceKind } from '@x-scraper/core';
 import type { EmbeddingProvider } from '@x-scraper/embeddings';
 import type { GraphStore } from '@x-scraper/graph';
@@ -62,7 +63,17 @@ export interface SyncDeps {
   graph: GraphStore;
   embeddings: EmbeddingProvider;
   llm: LlmProvider;
-  ingestors: Ingestor[];
+  /**
+   * Legacy ingestor list — still consumed by the unit-test path that
+   * stubs a single passthrough ingestor. Production now wires captors
+   * + captureStore below; the extract_text stage prefers capture when
+   * both are present and only falls back to ingestors for tests.
+   */
+  ingestors?: Ingestor[];
+  /** Capture-layer adapters. Required for production wiring. */
+  captors?: Captor[];
+  /** Content-addressed cache for raw source artifacts. */
+  captureStore?: CaptureStore;
   logger: Logger;
   /** Wraps graph.vectorSearch so the reconciler can use it directly. */
   erFinder: ErCandidateFinder;
@@ -85,6 +96,9 @@ export interface SyncOptions {
   /** Skip the write_vault stage — used by `xs reindex` where the vault is
    *  the source of truth and we're only rebuilding the graph. */
   skipVault?: boolean;
+  /** Skip the fetch_links stage — used by `xs refine` to avoid
+   *  re-enqueuing derived rows when re-extracting an existing capture. */
+  skipFetchLinks?: boolean;
 }
 
 export interface StageOutcome {
