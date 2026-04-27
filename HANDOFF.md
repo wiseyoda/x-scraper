@@ -1,280 +1,268 @@
 # Session Handoff
 
-> Updated 2026-04-27 end of session 6. Pat had to leave mid-ramp.
-> Three things shipped to main this session:
+> Updated 2026-04-27 at end of session 6. PR #28 merged to main as
+> squash `f8a567f`. Branch `feat/bookmark-ledger` deleted. Full
+> 200-bookmark corpus ingested at the new iCloud-safe vault path
+> `~/x-scraper-vault`. `docs/web-ui/` planning set landed.
 >
-> 1. **PR #28 merged** as squash `f8a567f` — bookmark ledger + X Article
->    ingestor + 12 quality upgrades + 11 codex/quality fixes. Branch
->    `feat/bookmark-ledger` deleted locally and remotely.
-> 2. **Backed-off ramp** at the new iCloud-safe vault `~/x-scraper-vault`
->    drove all **200 organic bookmarks to synced**. Step 128 was still
->    draining the derived-row backlog (~176 derived new, 6 synced, 1
->    dead) when this was written. Bash background task running step 128
->    will continue if/when Claude Code closes; queue is durable so
->    nothing is lost.
-> 3. **`docs/web-ui/` planning set** (6 markdown files, ~56KB) for a
->    Next.js 15 + shadcn web app with knowledge-graph viz + Claude
->    Agent SDK research surface. Build-this-week feature.
->
-> **Read this first, then resume with the "On resume" section below.**
+> **Read this first.**
 
-## What landed in main this session (f8a567f, squash of 26 commits)
+## Current State
 
-Session 6 picked up from session 5's PR #28 (which was open with all of
-T8–T23 + X Article ingestor + content_type routing). Did the full reset
-Pat called for, ran a smoke, found bugs, fixed them, ran codex review
-twice, fixed everything codex caught, ramped through the corpus.
+- **Branch**: on `main`, head `85ac4e7` (clean).
+- **Corpus**: 200/200 organic synced, 31 derived synced, 154 derived
+  pending, 25 derived dead (all from a known one-line t.co bug).
+- **Vault** at `~/x-scraper-vault/`: 290 sources, 2258 claims, 509
+  entities. `xs doctor` reports `vault-icloud: vault is not iCloud-synced`.
+- **Cost ledger**: ~$7.07 spent end-to-end.
+- **Test suite**: 332 passing across 47 files. Lint, typecheck, build,
+  format clean.
+- **CI**: green on `main` after the build-before-lint reorder fix.
+- **Codex review**: two passes done this session (logs at
+  `.repostat/codex-review/`); all P1+P2 findings addressed except the
+  t.co-in-entity-alias bug surfaced AFTER the second pass.
 
-### Codex review pass 1 fixes (5 of 6 from log run-20260426-234520.log)
+## What Was Done This Session
 
-- **P1** `@x-scraper/community` TS resolution (root tsconfig + cli refs).
+### Codex review pass 1 fixes (5 fixes, commit 5599583 + c90d0f8 + fe8057a + aa91a9b + 2b5b9e1)
+
+- **P1** `@x-scraper/community` TS resolution — added paths alias and
+  cli project reference.
 - **P1** `t.co` resolved before derived ledger row creation —
-  `fetchLinksStage` now uses `expandedUrls` from the ledger when present;
-  body URL_RE scanning is the fallback for non-tweet sources.
-- **P2** Cooccurrence ON MATCH only increments `cooccurrence_count` when
-  `$sourceId` is not already in `r.sources`. Prevents retry/reindex
-  overweighting concept pairs.
-- **P2** `xs trends` Top authors uses the `AUTHORED_BY` edge
-  (T20-materialized Person), not dotted access into the
-  literal-keyed `host_metadata.byline` property.
+  `fetchLinksStage` now uses `expandedUrls` from ledger when present.
+- **P2** Cooccurrence ON MATCH guarded — only increments
+  `cooccurrence_count` when `$sourceId` is not already in `r.sources`.
+- **P2** `xs trends` Top authors uses `AUTHORED_BY` edge (was broken
+  by dotted access into literal-keyed `host_metadata.byline`).
 - **P2** `vault.read`/`list('Source')` probe routed `sources/<kind>/`
-  before legacy flat `sources/`, dedupe by id.
-- **P2** Backfill spike pagination uses stable `n.id > $lastId` cursor —
-  prior SKIP+IS-NULL pattern silently skipped about half the corpus on
-  every backfill. (Moot for our wiped vault, fixed for hygiene.)
+  before legacy flat `sources/`; dedupe by id.
+- **P2** Backfill spike pagination uses `n.id > $lastId` cursor (was
+  silently skipping ~half the corpus on every backfill).
 
-### Codex review pass 2 fixes (5 from run-fixes-20260427-073610.log)
+### Codex review pass 2 fixes (5 fixes, commit de536c3)
 
-- **P2** Preserve x.com → x.com/i/article/... links during expansion —
-  fetchLinksStage no longer drops ALL same-host URLs; only exact
-  self-link + tweet permalinks.
-- **P2** Cooccurrence edges isolated from generic semantic upserts via
+- Preserve x.com → x.com/i/article links during expansion (was
+  dropping all same-host URLs; now only drops exact self-link + tweet
+  permalinks).
+- Cooccurrence edges isolated from generic semantic upserts via
   `kind IS NULL` filter in `buildUpsertEdge`.
-- **P2** Entity vector overfetch ×10 — `db.index.vector.queryNodes`
-  returns top-k globally, then we filter by label; without overfetch the
-  filter could yield zero same-type candidates in a mixed graph.
-- **P2** Edit-version chain via `tweet_id` — new
-  `queue.bookmarkChainStatus(tweetId)` returns latest-non-superseded +
-  chain length; second edit gets a non-colliding `_v2`.
-- **P2** `xs trends --format=json` sends NDJSON logs to stderr.
+- Entity vector overfetch ×10 — `db.index.vector.queryNodes` returns
+  global top-k; we filter by label after, so overfetch is needed to
+  survive label-filter culling in mixed graphs.
+- Edit-version chain via `tweet_id` — new
+  `queue.bookmarkChainStatus(tweetId)`; second edit gets a
+  non-colliding `_v2`.
+- `xs trends --format=json` sends NDJSON logs to stderr (was
+  corrupting stdout).
 
-### My-eyes findings + user-asked features
+### My-eyes findings + user-asked features (commits fe8057a, 2b5b9e1, e83c8bc)
 
 - x-article body uses `.innerText` (preserves block boundaries) +
-  byline anchor-href fallback. Article body went from one wall of
-  text to 175 lines with paragraph breaks.
-- Self-referential entity filter — drops Article/PDF/Repo/Tweet/Video
-  entities whose name matches the source title and content_type, so
-  the canonical Source.md isn't shadowed by an empty stub.
-- **Auto-ingest from entity aliases** — when extract_facts returns an
-  Article/Repo/Video/PDF entity with a URL alias, enqueue a derived
-  ledger row for it. Mirrors T13 for entity-discovered links.
-- **Extractor prompt v2** — Repo REQUIRES github URL; Article requires
-  non-tweet http URL; Video requires youtube URL; PDF requires .pdf
-  URL; otherwise classify Concept/Tool. Bumps EXTRACTION_PROMPT_VERSION
-  to 2; v1 still exported for historical analysis. Verified:
-  voxyz.space (was misclassified as Repo) is now correctly Concept
-  with the URL in aliases.
-- **Entity stub merge across mentions** — read-then-merge
-  sources/aliases/created_at when an entity is re-mentioned by a new
-  source. Body now includes `## URLs` and `## Mentioned in [[src_X]]`
-  sections for click-through navigation.
-- **iCloud-safe default vault path** — `DEFAULT_VAULT_DIR` is now
-  `~/x-scraper-vault`. doctor warns when vault realpath resolves into
-  iCloud Drive's `Mobile Documents/com~apple~CloudDocs`. Pat's
-  `~/Documents` was symlinked to iCloud, causing `topics 2/` ghost
-  dirs from concurrent mkdir + iCloud sync conflict resolution.
-- **CI build before lint** — typescript-eslint's projectService relies
-  on each package's `dist/index.d.ts` to resolve cross-package imports;
-  on a fresh CI checkout that didn't exist, so cross-package types
-  degraded to `error` and triggered no-unsafe-* errors. Fixed by
-  reordering CI steps.
+  byline anchor-href fallback.
+- Self-referential entity stub filter — drops Article/PDF/Repo/etc.
+  whose name matches the source's own title at the right content_type.
+- Auto-ingest URLs from entity aliases — when an Article/Repo/Video/PDF
+  entity has a URL alias, enqueue a derived ledger row.
+- Extractor prompt v2 — Repo REQUIRES github URL; Article requires
+  non-tweet http URL; Video requires youtube; PDF requires .pdf;
+  otherwise Concept/Tool. Bumped `EXTRACTION_PROMPT_VERSION` to 2.
+- Entity stub merge across mentions — `vault.read`+merge so re-mentions
+  preserve sources/aliases lists; body includes `## URLs` and
+  `## Mentioned in [[src_X]]` sections.
+- iCloud-safe default vault path: `~/x-scraper-vault` instead of
+  `~/Documents/x-scraper-vault`. `xs doctor` warns if the configured
+  vault realpath lands inside iCloud Drive.
 
-### State of the persistent stores AT THE TIME OF THIS WRITE
+### Pre-merge gate fixups (commits 5475978, 40bb568, e6e9e8f)
 
-(These will keep advancing while step 128 runs; resume should re-query.)
+- Auto-formatted 6 prettier-flagged files; fixed 3 lint errors
+  (redundant optional chain, unused type parameter, prefer-optional-chain).
+- Added `.repostat/` to `.gitignore` and removed an accidentally-committed
+  ramp snapshot JSON.
+- CI: build before lint (typescript-eslint projectService needs
+  `dist/index.d.ts` to resolve cross-package imports; fresh CI checkouts
+  have no dist).
 
-- bookmark_ledger:
-  - `organic|synced` 165, `organic|new` 35
-  - `derived|synced` 1, `derived|new` 152
-- vault `~/x-scraper-vault/`:
-  - sources: 203 (`.md`)
-  - claims: 1097
-  - entities: 316
-- Neo4j: schema bootstrapped with `claim_embed_idx` + `entity_embed_idx`
-  HNSW (1536 dims), all 7 unique constraints
-- cost ledger: $3.32 spent so far
-- ghost dirs: 0 (iCloud-safe path holding firm)
-- failures/dead jobs: 0
+### Squash merge to main (commit f8a567f)
 
-### Ramp progression so far
+- `gh pr merge 28 --squash --delete-branch` with a structured `--body`
+  grouping the 26 commits by category (Major / Codex review fixes /
+  Quality). Branch `feat/bookmark-ledger` deleted both locally and
+  remotely.
+- Pulled `main` locally, pruned stale tracking refs, removed the codex
+  review worktree at `/Users/ppatterson/Working/x-scraper-codex-review`.
 
-| Step | limit | succeeded | failed | duration | cost | derived enqueued |
-|------|-------|-----------|--------|----------|------|------------------|
-| 0a   | 1 oldest  | 1 (t.co stub) | 0 | <1s     | $0.00 | 1 |
-| 0b   | 1 newest  | 1 (X Article smoke) | 0 | 135s    | $0.116 | 0 |
-| 2    | 2  | 2  | 0 | 24s   | $0.031 | 2  |
-| 4    | 4  | 4  | 0 | 27s   | $0.042 | 3  |
-| 8    | 8  | 8  | 0 | 30s   | $0.046 | 6  |
-| 16   | 16 | 16 | 0 | 130s  | $0.192 | 14 |
-| 32   | 32 | 32 | 0 | 413s  | $0.615 | 37 |
-| 64   | 64 | 64 | 0 | ~10m  | $1.284 | 67 |
-| 128  | 128 | in flight | 0 | running | running | running |
+### Backed-off ramp (steps 1, 2, 4, 8, 16, 32, 64, 128)
 
-## docs/web-ui/ — planned Next.js + Agent SDK app
+| Step | succeeded | failed/dead | duration | cost |
+|------|-----------|-------------|----------|------|
+| 1 oldest | 1 (t.co stub) | 0 | <1s | $0.00 |
+| 1 newest | 1 (X Article smoke) | 0 | 135s | $0.116 |
+| 2  | 2  | 0 | 24s   | $0.031 |
+| 4  | 4  | 0 | 27s   | $0.042 |
+| 8  | 8  | 0 | 30s   | $0.046 |
+| 16 | 16 | 0 | 130s  | $0.192 |
+| 32 | 32 | 0 | 413s  | $0.615 |
+| 64 | 64 | 0 | ~10m  | $1.284 |
+| 128 | 103 | 25 dead (t.co bug) | ~32m | $4.74 |
 
-Six planning docs at `docs/web-ui/` (committed in `8e33c9e`):
+After step 128: all 200 organic synced + 31 derived synced + 154
+derived pending + 25 dead.
 
-- `README.md` — overview, scope, tech stack at a glance, layout sketch
-- `ARCHITECTURE.md` — Next.js 15 + RSC + Server Actions structure,
-  runtime model, hot-reload-safe singletons, auth, caching, CI
-- `AGENT_SDK.md` — read flow vs write flow, tool catalog (read +
-  write tables), in-process MCP server pattern, streaming wiring,
-  session persistence schema, three-layer safety
-- `GRAPH_VIS.md` — Sigma.js v3 + Graphology + `@react-sigma/core`
-  decision (with comparison table), visual encoding, ForceAtlas2 in
-  a worker, URL-encoded saved views, topic halo overlay
-- `COMPONENTS.md` — three-tier rule (shadcn → domain → page),
-  inventory of `<EntityCard>`, `<ClaimRow>`, `<GraphCanvas>`,
-  `<AgentChat>`, etc., hooks, state-management posture
-- `ROADMAP.md` — four-phase build plan (~5–7 days): scaffold → read
-  surface → graph viz → write flow + polish, exit criteria per
-  phase
+### docs/web-ui/ planning set (commit 8e33c9e)
 
-Stack lock-in: Next.js 15 + Tailwind 4 + shadcn/ui + Sigma.js +
-TanStack Table + Vercel AI SDK + Claude Agent SDK. App lives at
-`apps/web-ui` (the existing `pnpm-workspace.yaml` already has
-`apps/*`). Single user, localhost-only, bearer auth.
+Six files at `docs/web-ui/`: README, ARCHITECTURE, AGENT_SDK,
+GRAPH_VIS, COMPONENTS, ROADMAP. Stack: Next.js 15 (App Router, RSC +
+Server Actions) + Tailwind 4 + shadcn/ui + Sigma.js v3 + Graphology +
+Vercel AI SDK + `@anthropic-ai/claude-agent-sdk`. App lives at
+`apps/web-ui`. Three research agents informed the docs (claude-code-guide
+for the Agent SDK, two general-purpose for graph viz comparison and
+Next.js patterns). 4-phase ROADMAP, ~5–7 days build.
 
-Three research agents informed each doc — claude-code-guide for the
-Agent SDK, two general-purpose for graph viz library comparison and
-Next.js 15 + shadcn data-app patterns.
+## Key Decisions
 
-## On resume
+- **Squash merge with structured body, not default.** PR #28 had 26
+  commits; default squash glues their subjects with bullets. Used
+  `gh pr merge --subject + --body` to write a real grouped message
+  for archaeology purposes.
+- **Vault default → `~/x-scraper-vault`, NOT `~/Documents/x-scraper-vault`.**
+  iCloud Drive's "Desktop & Documents" sync was creating ghost
+  directories during parallel mkdir + git ops.
+- **Sigma.js + Graphology over Cytoscape, React Flow, vis-network.**
+  Only library that holds 50k nodes at 60fps with a real React story.
+  Graphology is the right data model regardless of renderer.
+- **In-process MCP tools for the agent (via `createSdkMcpServer`),
+  not REST or stdio.** Sub-millisecond per tool call vs 50–200ms for
+  REST round-trips. `xs-rest` and `xs-mcp` stay around for IDE / CLI.
+- **CI builds before lint.** typescript-eslint's projectService
+  resolves cross-package types via dist; lint without dist false-
+  positives `no-unsafe-*` rules. Reordered CI steps rather than adding
+  postinstall (which would slow every dev install).
+- **Extractor prompt v2 over editing v1 in place.** Existing rule:
+  bump `EXTRACTION_PROMPT_VERSION` and add `extraction-vN.ts`; never
+  edit a published version. v2 tightens type classification (Repo
+  requires github URL etc.).
+- **`apps/web-ui`, not `packages/web-ui`.** Convention: `packages/*`
+  for libraries, `apps/*` for deployables. The existing
+  `pnpm-workspace.yaml` already lists `apps/*`.
 
-### 1. Verify step 128 finished cleanly
+## What Failed
 
-```bash
-grep -c 'item.failed' .repostat/ramp-logs/step-128.log
-grep -c 'sync.finished' .repostat/ramp-logs/step-128.log
-sqlite3 ~/.config/x-scraper/queue.sqlite "SELECT source_kind, status, COUNT(*) FROM bookmark_ledger GROUP BY source_kind, status;"
-```
+- **First smoke ingest produced bad data** because `dist/` was stale
+  relative to `feat/bookmark-ledger`'s recent commits. The X Article
+  ingest ran *old* code that wrote `sources/src_*.md` flat instead of
+  `sources/articles/`, and missed the byline + body-structure fixes
+  entirely. **Caught** by walking the produced files. **Fixed** by
+  `pnpm build`, deleting the stale stub, resetting the ledger row,
+  re-running step 1. Lesson: every session should start with a full
+  build before the first smoke.
+- **`topics 2/` ghost dir during the X Article smoke.** Empty
+  directory created at exactly the moment vault.init ran a second
+  time during the same smoke. **Traced** to `~/Documents` being a
+  symlink into `~/Library/Mobile Documents/com~apple~CloudDocs/Documents`
+  (iCloud Drive sync). **Fixed** by changing the default vault path
+  AND adding a `vault-icloud` doctor check.
+- **CI failed twice on the squash merge prep.** First on
+  `pnpm format:check` (6 prettier-flagged files) + 3 eslint errors;
+  fixed by `pnpm format` and manual edits. Second on
+  `@typescript-eslint/no-unsafe-*` errors that didn't reproduce
+  locally — root cause was projectService needing `dist/*.d.ts` that
+  fresh CI didn't have. Fixed by reordering CI steps to build before
+  lint.
+- **Step 128 of the ramp had 25 dead rows** (~20% failure rate),
+  ALL from a single bug: my Phase 6a `enqueueEntityLinkDerivedRows`
+  doesn't filter t.co URLs the way `fetchLinksStage` does for body
+  URLs. When the LLM emits a `t.co` URL in an entity alias, we
+  enqueue it as a derived row → Readability null → permanent
+  failure → dead. Fix is one line; queued for resume.
 
-If finished cleanly, expect ~all organics synced (`organic|new` near 0)
-and a larger derived backlog.
+## Deferred / Backlog
 
-### 2. Fix the t.co-in-entity-alias bug
+- **Drain remaining 154 derived rows**, AFTER fixing the t.co guard.
+  Doubling cadence (`--limit=2, 4, 8, 16, 32, 64, 128`) until
+  `derived|new` = 0. Budget $5–15 (mix of articles, repos, videos).
+- **Decide what to do with the 25 dead rows.** Either retry after
+  the t.co fix lands (will still fail — t.co is not the canonical
+  URL and Readability still won't get content), or leave them as
+  archival markers of "the t.co target was unrecoverable". Pat's
+  call.
+- **Run `xs topic detect --synthesize`** against the populated
+  graph (now 600+ entities, much richer cooccurrence — should
+  produce real community-based topics for the first time).
+- **Build apps/web-ui per `docs/web-ui/ROADMAP.md`** — task #9 in
+  the task list. Phase 0 scaffold is half a day; full plan ~5–7
+  days. Pat said "we'll build it this week at some point".
+- **Codex review on main** (not branch — branch is gone). Recreate
+  the worktree via `git worktree add`. Last review was on `e83c8bc`;
+  main is now at `85ac4e7` with three additional fixup commits
+  + the docs + handoff that codex hasn't seen.
 
-Surfaced during the ramp: my Phase 6a auto-ingest of URLs from entity
-aliases doesn't filter `t.co` shortlinks the way `fetchLinksStage`
-does for body URLs. When the LLM emits a `t.co` URL in an entity
-alias, `enqueueEntityLinkDerivedRows` writes it to the derived ledger
-as-is. Readability returns null → permanent failure → dead.
+## Traps for Next Session
 
-**Already 1 dead row** from this: `derived_src_eb5e996c`,
-`https://t.co/P5rjoZxD4A`. Likely more by the time step 128 finishes.
+- **Use `/opt/homebrew/bin/node`** for the CLI (matches the
+  better-sqlite3 ABI; nvm `node` is wrong NODE_MODULE_VERSION).
+- **Don't run a large `--limit` sync until the t.co guard is in.**
+  Each unfiltered t.co URL = a guaranteed dead row. Fix first, then
+  drain.
+- **`schema_version` is at 4.** Any new migration uses v5+; v4
+  already owns the `cost_ledger.entry_id` ALTER fold-in.
+- **Vault git is at `~/x-scraper-vault/.git`** (NEW location). The
+  old `~/Documents/x-scraper-vault/` was wiped in the reset and is
+  no longer referenced anywhere.
+- **`/tmp` snapshots from this session** are still around if you
+  need recovery: `/tmp/x-scraper-vault-pre-reset` (session 5
+  state), `/tmp/queue-pre-reset.sqlite`, `/tmp/neo4j-pre-reset/`,
+  `/tmp/x-scraper-vault-post-smoke`,
+  `/tmp/x-scraper-vault-post-phase6-prereset`.
+- **CI is build → lint → typecheck → test → circular.** Don't
+  reorder; lint will fail on cross-package imports otherwise.
+- **`HANDOFF.md` is a SNAPSHOT, not a log.** This file was rewritten
+  per the end-session skill — older mid-session iterations are in
+  git history.
 
-Fix is one block in
-`packages/cli/src/commands/sync/stages.ts:enqueueEntityLinkDerivedRows`:
-add a `t.co` hostname guard alongside the existing
-`X_TWEET_URL_RE.test(canonical)` skip. The canonical t.co URL won't
-resolve here without an HTTP HEAD; simplest is to skip any URL whose
-host is `t.co`.
+## Next Steps
 
-After fixing: any dead rows can be retried via the queue's
-`retryFailed` if you want them re-attempted on the LLM resolving the
-final URL through some other path. Or just leave them as a record
-that the t.co target was unrecoverable.
+1. **Fix the t.co guard.** In
+   `packages/cli/src/commands/sync/stages.ts:enqueueEntityLinkDerivedRows`,
+   add a hostname check alongside the existing `X_TWEET_URL_RE.test(canonical)`
+   skip:
+   ```ts
+   if (X_TWEET_URL_RE.test(canonical)) continue;
+   try {
+     if (new URL(canonical).hostname === 't.co') continue;
+   } catch { continue; }
+   ```
+   Run `pnpm typecheck && pnpm test packages/cli && pnpm build`.
+   Expected: 332 tests still pass.
 
-### 3. Drain remaining derived rows in doubling batches
+2. **Drain remaining derived rows.** With the t.co guard in:
+   ```bash
+   /opt/homebrew/bin/node packages/cli/dist/bin.js bookmarks sync --order=oldest --limit=128
+   ```
+   Then again at `--limit=128` if rows remain. Expected: most rows
+   succeed (articles + repos + videos); failure rate near 0%.
 
-By the time step 128 finishes there will likely still be 50–100
-derived rows in `new` (the queue auto-expands as it ingests). Drain
-in doubling batches (`--limit=2`, 4, 8, 16, 32, 64, 128) until
-`derived|new` = 0. Stop on any unexpected failure pattern (more than
-1-2 dead per batch).
+3. **`xs topic detect --synthesize`.** Now that the graph is rich,
+   Louvain should find real communities with Sonnet-titled topics.
+   ```bash
+   /opt/homebrew/bin/node packages/cli/dist/bin.js topic detect --synthesize
+   ```
+   Expected: 5–15 topics each with 5–30 member concepts.
 
-Some derived rows will be cross-host articles (high body, high
-extract cost: $0.10-0.30 each). Some will be github repos (~$0.01
-each via RepoIngestor). Budget another $5-15 to drain all derived
-that come in.
+4. **Codex review on main.**
+   ```bash
+   git worktree add /Users/ppatterson/Working/x-scraper-codex-review main
+   cd /Users/ppatterson/Working/x-scraper-codex-review
+   codex review --base main > /Users/ppatterson/Working/x-scraper/.repostat/codex-review/run-$(date +%Y%m%d-%H%M%S).log 2>&1 &
+   ```
+   Expected: a few P2s, mostly cosmetic since main just had two codex
+   passes.
 
-### 4. After everything settles
-
-- Run `xs topic detect --synthesize` against the populated graph (now
-  has 600+ entities, much richer cooccurrence — should produce real
-  community-based topics for the first time this session).
-- Run `xs trends` to confirm the data looks sensible.
-- Look at the vault in Obsidian: open a couple Source.md files, click
-  through to entity stubs, verify the `## Mentioned in` wikilinks
-  resolve correctly across multi-source entities.
-
-### 5. Start building apps/web-ui
-
-Plan is in `docs/web-ui/`. Phase 0 (scaffold) is half a day. See
-`docs/web-ui/ROADMAP.md` for the four-phase plan and exit criteria.
-
-## Key absolute paths
-
-- vault: `~/x-scraper-vault/` (NEW, non-iCloud)
-- queue: `~/.config/x-scraper/queue.sqlite`
-- env: `~/.config/x-scraper/.env` (chmod 600)
-- ramp logs: `.repostat/ramp-logs/step-{1,2,4,8,16,32,64,128}.log`
-- codex review logs: `.repostat/codex-review/run-*.log`
-- snapshots from earlier in session (recoverable):
-  - `/tmp/x-scraper-vault-pre-reset` (session 5 state, 525 sources)
-  - `/tmp/queue-pre-reset.sqlite` + `/tmp/neo4j-pre-reset/`
-  - `/tmp/x-scraper-vault-post-smoke` (post-fix-1 smoke)
-  - `/tmp/x-scraper-vault-post-phase6-prereset`
-
-## Traps that still apply
-
-- **Use `/opt/homebrew/bin/node`** for the CLI (matches better-sqlite3
-  ABI; nvm `node` is wrong NODE_MODULE_VERSION).
-- **The bash background task running step 128 may be killed** when
-  Claude Code closes. The queue is durable so no work is lost — any
-  jobs the dying process had leased get reclaimed by stale-lease
-  recovery on the next claimNext().
-- **`xs schedule install` is still untested end-to-end** — won't matter
-  for the immediate ramp finish, but worth noting for future cron use.
-- **Codex review pending re-run** — main is now at `f8a567f` with the
-  squash; if you want a fresh codex pass on main rather than on the
-  branch (since branch is gone), spin up a worktree at main HEAD.
-- **CI is now: build → lint → typecheck → test → circular**. If you
-  reorder, lint will fail on cross-package imports.
-
-## Open task slots
-
-- #5 ramp re-ingest — derived backlog still draining
-- #6 plan apps/web-ui — DONE (in `docs/web-ui/`)
-- #9 build apps/web-ui per `docs/web-ui/ROADMAP.md` — pending
-
-## State of the persistent stores (snapshot taken just before write)
-
-- bookmark_ledger:
-  - `organic|synced` **200 / 200**  ✓ (full corpus ingested)
-  - `derived|synced` 6, `derived|new` 176, `derived|failed` 1 (dead)
-- vault `~/x-scraper-vault/`:
-  - sources: ~210
-  - claims: ~1100
-  - entities: ~320
-- cost ledger: ~$3.40 spent
-- ghost dirs: 0
-- Step 128 bash bg task: still running, ~62/128 items done
-
-## Files that may matter
-
-- `packages/cli/src/commands/sync/stages.ts` — fetchLinksStage,
-  extractFactsStage (incl. self-ref filter + entity-link enqueue),
-  writeVaultStage (incl. writeMergedEntity helper)
-- `packages/cli/src/commands/bookmarks.ts` — edit-version chain via
-  `bookmarkChainStatus`
-- `packages/cli/src/commands/trends.ts` — JSON mode logger to stderr
-- `packages/extractor/src/prompts/extraction-v2.ts` — new strict
-  classification rules (Repo requires github URL etc.)
-- `packages/ingestor/src/x-article.ts` — innerText body extraction +
-  anchor-first byline
-- `packages/cli/src/constants.ts` — `DEFAULT_VAULT_DIR` is now
-  `~/x-scraper-vault`
-- `packages/cli/src/commands/doctor.ts` — `vault-icloud` check
-- `.github/workflows/ci.yml` — build runs before lint
+5. **Start `apps/web-ui` Phase 0.** See `docs/web-ui/ROADMAP.md` —
+   half a day to scaffold. Open a new branch off main:
+   ```bash
+   git checkout -b feat/web-ui-scaffold
+   pnpm dlx create-next-app@latest apps/web-ui --typescript --tailwind --app --src-dir --no-eslint
+   ```
+   Expected: `pnpm dev --filter @x-scraper/web-ui` boots on
+   `localhost:3000` with shadcn primitives installed.

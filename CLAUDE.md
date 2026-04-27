@@ -29,7 +29,7 @@ docs/             ARCHITECTURE, ROADMAP, SPIKES, CODING_STANDARDS, CODEX_REVIEW
 spikes/           1-auth, 2-bookmarks, 3-neo4j, 4-gemini, 5-claude, 6-mcp/-server, 7-readability, verify-keys, verify-pdf-ingestor
 ```
 
-Read `docs/ARCHITECTURE.md` and `HANDOFF.md` first.
+Read `HANDOFF.md`, `docs/ARCHITECTURE.md`, and `docs/web-ui/README.md` (planned `apps/web-ui` build) first.
 
 ## Commands
 
@@ -44,7 +44,7 @@ pnpm format          # write
 pnpm format:check    # check
 pnpm lint
 pnpm typecheck
-pnpm test            # vitest, 316 tests across all packages
+pnpm test            # vitest, 332 tests across all packages
 pnpm build           # all packages
 pnpm circular        # madge
 
@@ -60,8 +60,8 @@ RUN_INTEGRATION=1 pnpm test packages/graph
 # Run perf bench tests (opt-in; not in CI by default)
 RUN_BENCH=1 pnpm test packages/community packages/reconciler packages/core
 
-# Local CLIs
-node packages/cli/dist/bin.js init                                  # creates the vault + queue
+# Local CLIs — invoke via /opt/homebrew/bin/node (matches better-sqlite3 ABI)
+/opt/homebrew/bin/node packages/cli/dist/bin.js init                                  # creates the vault + queue
 node packages/cli/dist/bin.js doctor                                # sanity-checks env + paths
 node packages/cli/dist/bin.js sync --urls=https://...,https://...   # ingest pipeline against curated URLs
 node packages/cli/dist/bin.js reindex --from-vault                  # rebuild graph from existing markdown
@@ -91,13 +91,14 @@ TypeScript (Node 22.13+, ESM, pnpm 10) · Patchright (stealth Playwright) · **N
 
 ## Key constraints
 
-- Markdown vault is canonical; the graph is a derivable index. Vault root: `~/Documents/x-scraper-vault/` (git-tracked, Obsidian-compatible).
+- Markdown vault is canonical; the graph is a derivable index. Vault root: `~/x-scraper-vault/` (git-tracked, Obsidian-compatible). Default changed in session 6 — `~/Documents` is iCloud-synced on this Mac and was creating `topics 2/` ghost dirs. `xs doctor` warns if the configured vault realpath lands inside iCloud.
 - Hexagonal architecture: every package exposes a port (interface); adapters implement it. No business logic depends on a concrete adapter.
 - All external JSON is Zod-validated at the boundary. No `as T` casts.
 - No magic numbers in logic — constants files per package, named with intent. Test fixtures may use literals.
-- LLM defaults: `max_tokens` 16k–32k for extraction, no MIN\_ thresholds in schemas, prompt caching on schema/system portion, always check `stop_reason`.
+- LLM defaults: `max_tokens` 16k–32k for extraction, no MIN\_ thresholds in schemas, prompt caching on schema/system portion, always check `stop_reason`. **Extractor prompt is at v2** (`packages/extractor/src/prompts/extraction-v2.ts`) — Repo requires github URL, Article requires non-tweet http URL, Video requires youtube URL, PDF requires .pdf URL; otherwise classify Concept/Tool. Bump `EXTRACTION_PROMPT_VERSION` in `constants.ts` and add a sibling file when changing rules; never edit a published version in place.
 - One feature branch open at a time. Each slice branches off main AFTER the previous slice merges (do NOT stack).
-- Codex review at every milestone: spike completion, slice merge, phase tag. P1/P2 findings block merge.
+- Codex review at every milestone: spike completion, slice merge, phase tag. P1/P2 findings block merge. Run in a worktree (`/Users/ppatterson/Working/x-scraper-codex-review`, recreate via `git worktree add`) and stream the log to `.repostat/codex-review/` (gitignored).
+- CI must build before lint — typescript-eslint's projectService resolves cross-package types via `dist/index.d.ts`; lint will false-positive on cross-package imports without a fresh build.
 - Reserved fields (logger time/level/msg, timer label/ms) beat caller data — spread caller fields first.
 - Auth fails closed: `xs-rest` refuses to start without a bearer token unless `XSCRAPER_REST_ALLOW_UNAUTH=1`.
 - **Neo4j test-pollution prevention**: any spike or test that writes to the live Neo4j MUST prefix every node id with `xs_int_test_` (integration tests) or `xs_spike<N>_` (spikes), and DETACH DELETE its prefixed nodes in `afterAll` / `finally`. Spikes that need to wipe the DB MUST first refuse-if-populated by counting non-prefixed nodes (see `spikes/3-neo4j.ts:refuseIfDbIsPopulated`). Canonical pattern: `packages/graph/src/__tests__/neo4j-store.integration.test.ts`.
