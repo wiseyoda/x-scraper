@@ -124,14 +124,40 @@ export const createXArticleIngestor = (config: XArticleConfig): Ingestor => {
     const probe = await page.evaluate(
       (selectors): { title: string; content: string; byline: string; canonical: string } => {
         const t = (document.querySelector(selectors.title)?.textContent ?? '').trim();
-        const c = (document.querySelector(selectors.content)?.textContent ?? '').trim();
-        const u = (document.querySelector(selectors.userCell)?.textContent ?? '').trim();
-        // Author handle: UserCell text concatenates handle + adjacent
-        // button labels (e.g. "@handleFollow"). X handles are 1-15
-        // chars of [A-Za-z0-9_]; lock the regex with a negative
-        // lookahead so it stops at the first non-handle character.
-        const handleMatch = /@([A-Za-z0-9_]{1,15})(?![A-Za-z0-9_])/.exec(u);
-        const handle = handleMatch?.[1] ?? '';
+        // textContent flattens the rich-text view into one paragraph —
+        // headings, paragraphs, code blocks, and list items all run
+        // together with no separator, hurting both readability and
+        // LLM extraction quality. innerText preserves visible line
+        // breaks because the browser computes it post-layout. We
+        // collapse runs of >2 newlines to exactly 2 so the output
+        // looks like normal markdown paragraphs.
+        const contentEl = document.querySelector<HTMLElement>(selectors.content);
+        const rawContent = contentEl?.innerText ?? contentEl?.textContent ?? '';
+        const c = rawContent.replace(/\n{3,}/g, '\n\n').trim();
+        // Byline: prefer the user-profile anchor's href because it's
+        // the authoritative handle ("/<handle>"). UserCell textContent
+        // concatenates handle + button labels with no separator
+        // ("@voxyz_aiFollowC"), and the label can spill into the
+        // 15-char handle window so a greedy regex captures the wrong
+        // string. Anchor first, regex fallback only when no anchor.
+        const userCellEl = document.querySelector<HTMLElement>(selectors.userCell);
+        let handle = '';
+        if (userCellEl !== null) {
+          const anchors = Array.from(userCellEl.querySelectorAll('a[href^="/"]'));
+          for (const a of anchors) {
+            const href = a.getAttribute('href') ?? '';
+            const m = /^\/([A-Za-z0-9_]{1,15})(?:[/?#]|$)/.exec(href);
+            if (m && m[1] !== undefined) {
+              handle = m[1];
+              break;
+            }
+          }
+        }
+        if (handle.length === 0) {
+          const u = (userCellEl?.textContent ?? '').trim();
+          const handleMatch = /@([A-Za-z0-9_]{1,15})(?![A-Za-z0-9_])/.exec(u);
+          handle = handleMatch?.[1] ?? '';
+        }
         return {
           title: t,
           content: c,
