@@ -44,7 +44,7 @@ pnpm format          # write
 pnpm format:check    # check
 pnpm lint
 pnpm typecheck
-pnpm test            # vitest, 301 tests across all packages
+pnpm test            # vitest, 316 tests across all packages
 pnpm build           # all packages
 pnpm circular        # madge
 
@@ -74,6 +74,8 @@ node packages/cli/dist/bin.js topic detect --synthesize              # Louvain c
 node packages/cli/dist/bin.js schedule install --interval=3600       # launchd plist that runs xs bookmarks sync hourly
 node packages/cli/dist/bin.js mcp register --client=claude          # wire xs-mcp into Claude Desktop
 node packages/cli/dist/bin.js review                                # list duplicate-name entity candidates
+node packages/cli/dist/bin.js trends [--top=N] [--format=table|json] # top entities/concepts/predicates/edge counts
+node packages/cli/dist/bin.js cost --by-entry --top=20              # most expensive bookmarks (T22)
 
 # REST + MCP servers (need vault + queue to exist)
 node packages/rest/dist/bin.js          # bearer-protected REST on :7777
