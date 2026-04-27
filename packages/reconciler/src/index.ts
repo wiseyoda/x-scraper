@@ -4,7 +4,12 @@ export {
   DEFAULT_ER_VECTOR_K,
   RECONCILER_PROMPT_VERSION,
 } from './constants.js';
-export type { JudgeContext, ResolveEntityInput, ResolveEntityOptions } from './er.js';
+export type {
+  ErJudgementWithType,
+  JudgeContext,
+  ResolveEntityInput,
+  ResolveEntityOptions,
+} from './er.js';
 export { ER_JUDGE_SYSTEM, judgeWithLlm, resolveEntity } from './er.js';
 export { normalizedSurfaceForms, normalizeEntityName } from './normalize.js';
 export type { ReconcileInput } from './reconcile.js';

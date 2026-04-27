@@ -69,6 +69,7 @@ const fakeGraph = (): GraphStore & { upserts: GraphNode[]; edges: GraphEdge[] } 
     countNodes: () => Promise.resolve(upserts.length),
     listConceptSubgraph: () => Promise.resolve({ nodes: [], edges: [] }),
     findEntityByNormalizedSurface: () => Promise.resolve(null),
+    findEntityByNormalizedSurfaceAcrossTypes: () => Promise.resolve(null),
     findClaimsForSubject: () => Promise.resolve([]),
     upsertCooccurrenceEdge: () => Promise.resolve(1),
     close: () => Promise.resolve(),

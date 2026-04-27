@@ -93,6 +93,19 @@ export interface GraphStore {
     surfaceForms: string[],
   ) => Promise<{ id: string; matchedSurface: string } | null>;
   /**
+   * Cross-type variant of findEntityByNormalizedSurface. Searches for
+   * an existing entity whose normalized_name OR aliases match any of
+   * the supplied surface forms across the supplied label set. Used by
+   * the reconciler to dedupe organization-style names that the LLM
+   * classifies as Tool one run and Person another run (or any of the
+   * other free-text proper-noun types). Returns the matched entity's
+   * type alongside the id so callers can preserve the existing label.
+   */
+  findEntityByNormalizedSurfaceAcrossTypes: (
+    labels: EntityType[],
+    surfaceForms: string[],
+  ) => Promise<{ id: string; matchedType: EntityType; matchedSurface: string } | null>;
+  /**
    * Return the current (invalid_at IS NULL) Claim nodes whose `subject`
    * exactly matches the supplied string, alongside their originating
    * source id (resolved from the EXTRACTED_FROM edge). Used by the

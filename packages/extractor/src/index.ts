@@ -7,6 +7,7 @@ export type { ExtractInput, ExtractMeta, ExtractorErrorCode, ExtractResult } fro
 export { extract, ExtractorError } from './extractor.js';
 export { EXTRACTION_SYSTEM_V1 } from './prompts/extraction-v1.js';
 export { EXTRACTION_SYSTEM_V2 } from './prompts/extraction-v2.js';
+export { EXTRACTION_SYSTEM_V3 } from './prompts/extraction-v3.js';
 export type {
   ExtractionClaim,
   ExtractionEntity,

@@ -46,10 +46,31 @@ export interface ResolveEntityOptions {
   probableThreshold?: number;
 }
 
+/**
+ * Free-text proper-noun types where cross-type surface match is safe.
+ * URL-anchored types (Source/Article/Tweet/Video/PDF/Repo) stay
+ * type-scoped because a URL collision between types is genuinely
+ * different (e.g. a github.com URL is a Repo, never a Tool).
+ *
+ * The Person↔Tool↔Concept loop is where the LLM legitimately
+ * disagrees with itself across runs and we want a single canonical
+ * record.
+ */
+const CROSS_TYPE_EQUIV: readonly EntityType[] = ['Person', 'Tool', 'Concept'];
+
+/**
+ * Result extension when ER decided to MERGE into an entity of a
+ * different type than the candidate's. Caller (sync stages) should
+ * preserve the existing type instead of overwriting.
+ */
+export interface ErJudgementWithType extends ErJudgement {
+  matchedType?: EntityType;
+}
+
 export const resolveEntity = async (
   input: ResolveEntityInput,
   options: ResolveEntityOptions,
-): Promise<ErJudgement> => {
+): Promise<ErJudgementWithType> => {
   const k = options.k ?? DEFAULT_ER_VECTOR_K;
   const mergeT = options.mergeThreshold ?? DEFAULT_ER_MERGE_THRESHOLD;
   const probableT = options.probableThreshold ?? DEFAULT_ER_PROBABLE_THRESHOLD;
@@ -60,17 +81,41 @@ export const resolveEntity = async (
     );
   }
 
-  // Phase 0 — cheap exact match on normalized name + aliases. Catches
-  // `AI Agents`/`AI Agent`, `MCP`/`Model Context Protocol`, etc., that
-  // vector ER misses because the embeddings sit just below the merge
-  // threshold. Indexed at the adapter — see GraphStore.findEntityByNormalizedSurface.
-  if (options.finder.findByNormalizedSurface !== undefined) {
-    const surfaces = normalizedSurfaceForms(input.candidateName, input.candidateAliases ?? []);
-    if (surfaces.length > 0) {
-      const exact = await options.finder.findByNormalizedSurface(input.type, surfaces);
-      if (exact !== null) {
-        return { decision: 'MERGE', matchId: exact.id, confidence: 1, vectorScore: null };
-      }
+  // Phase 0a — cheap exact match on normalized name + aliases, scoped
+  // to the candidate's type. Catches `AI Agents`/`AI Agent`,
+  // `MCP`/`Model Context Protocol`, etc., that vector ER misses because
+  // the embeddings sit just below the merge threshold. Indexed at the
+  // adapter — see GraphStore.findEntityByNormalizedSurface.
+  const surfaces = normalizedSurfaceForms(input.candidateName, input.candidateAliases ?? []);
+  if (options.finder.findByNormalizedSurface !== undefined && surfaces.length > 0) {
+    const exact = await options.finder.findByNormalizedSurface(input.type, surfaces);
+    if (exact !== null) {
+      return { decision: 'MERGE', matchId: exact.id, confidence: 1, vectorScore: null };
+    }
+  }
+
+  // Phase 0b — cross-type surface match for free-text proper-noun
+  // types. The LLM classifies "Anthropic" as Tool one run and Person
+  // another. Without this, we'd write two parallel records for the
+  // same real-world entity. Restricted to the equivalence set so URL-
+  // anchored types stay strictly scoped.
+  if (
+    options.finder.findByNormalizedSurfaceAcrossTypes !== undefined &&
+    surfaces.length > 0 &&
+    CROSS_TYPE_EQUIV.includes(input.type)
+  ) {
+    const cross = await options.finder.findByNormalizedSurfaceAcrossTypes(
+      [...CROSS_TYPE_EQUIV],
+      surfaces,
+    );
+    if (cross !== null && cross.matchedType !== input.type) {
+      return {
+        decision: 'MERGE',
+        matchId: cross.id,
+        matchedType: cross.matchedType,
+        confidence: 1,
+        vectorScore: null,
+      };
     }
   }
 

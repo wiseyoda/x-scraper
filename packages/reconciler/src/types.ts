@@ -33,6 +33,18 @@ export interface ErCandidateFinder {
     type: EntityType,
     surfaceForms: string[],
   ) => Promise<{ id: string; matchedSurface: string } | null>;
+  /**
+   * Cross-type variant — searches for an entity matching any of the
+   * supplied surface forms across the supplied label set. Used to
+   * merge organization-style names that the LLM classifies as Tool
+   * one run and Person another ("Anthropic" being canonical).
+   * Returns the matched type so callers can preserve the existing
+   * label rather than creating a duplicate.
+   */
+  findByNormalizedSurfaceAcrossTypes?: (
+    types: EntityType[],
+    surfaceForms: string[],
+  ) => Promise<{ id: string; matchedType: EntityType; matchedSurface: string } | null>;
 }
 
 export type ClaimAction = 'ADD' | 'UPDATE' | 'DELETE' | 'NONE';

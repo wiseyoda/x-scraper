@@ -162,10 +162,18 @@ export interface JobContext {
    *  Empty when extraction emitted no embeddable entities (e.g. a source
    *  with only Source/Topic/Claim entries). */
   entityEmbeddings: Map<string, number[]>;
-  /** Resolved entity decisions: client id → final graph id. */
+  /** Resolved entity decisions: client id → final graph id.
+   *  matchedType, when set, signals the resolver merged into an entity
+   *  of a different type (cross-type Person↔Tool↔Concept dedup); the
+   *  vault/graph writers must preserve that type rather than the
+   *  candidate's. */
   entityResolutions: Map<
     string,
-    { graphId: string; decision: 'MERGE' | 'NEW' | 'SAME_AS_PROBABLE' }
+    {
+      graphId: string;
+      decision: 'MERGE' | 'NEW' | 'SAME_AS_PROBABLE';
+      matchedType?: EntityType;
+    }
   >;
   /** Per-claim reconciliation decisions. */
   claimDecisions: Map<

@@ -473,7 +473,17 @@ export const resolveEntsStage = async (deps: SyncDeps, ctx: JobContext): Promise
     ctx.entityResolutions.set(entity.id, {
       graphId: finalId,
       decision: judgement.decision,
+      ...(judgement.matchedType === undefined ? {} : { matchedType: judgement.matchedType }),
     });
+    if (judgement.matchedType !== undefined && judgement.matchedType !== entity.type) {
+      deps.logger.info('sync.resolve_ents.cross_type_merge', {
+        sourceId: ctx.source.sourceId,
+        candidateType: entity.type,
+        candidateName: entity.name,
+        matchedId: judgement.matchId,
+        matchedType: judgement.matchedType,
+      });
+    }
   }
 };
 
@@ -625,11 +635,16 @@ export const writeVaultStage = async (deps: SyncDeps, ctx: JobContext): Promise<
       entity.type === 'Idea'
     )
       continue;
+    // Cross-type merge: resolver folded this entity into an existing
+    // record of a different type. Use the existing type so the file
+    // path / Neo4j label stays consistent (otherwise we'd write a
+    // parallel record at the candidate's type).
+    const persistedType = (resolution.matchedType ?? entity.type) as MergedEntityType;
     const entityPath = await writeMergedEntity(
       deps.vault,
       {
         id: resolution.graphId,
-        type: entity.type,
+        type: persistedType,
         name: entity.name,
         aliases: entity.aliases,
       },
@@ -734,9 +749,12 @@ export const updateGraphStage = async (deps: SyncDeps, ctx: JobContext): Promise
     // it the reconciler would still be falling back to source-vector
     // proxy similarity.
     const entityEmbedding = ctx.entityEmbeddings.get(entity.id);
+    // Cross-type merge: write the node under the existing label so we
+    // don't add a second :Person label to a node that's already :Tool.
+    const persistedType = resolution.matchedType ?? entity.type;
     await deps.graph.upsertNode({
       id: resolution.graphId,
-      type: entity.type,
+      type: persistedType,
       props: {
         name: entity.name,
         aliases: entity.aliases,

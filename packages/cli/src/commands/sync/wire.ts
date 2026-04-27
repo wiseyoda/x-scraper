@@ -160,6 +160,8 @@ export const wireSyncDeps = async (
     },
     findByNormalizedSurface: (type, surfaces) =>
       graph.findEntityByNormalizedSurface(type, surfaces),
+    findByNormalizedSurfaceAcrossTypes: (types, surfaces) =>
+      graph.findEntityByNormalizedSurfaceAcrossTypes(types, surfaces),
   };
 
   // Existing-claims lookup wired to the graph adapter — replaces the old

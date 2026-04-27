@@ -10,7 +10,7 @@
 
 import { EDGE_TYPES, type EdgeType, ENTITY_TYPES, type EntityType } from '@x-scraper/core';
 
-export const EXTRACTION_PROMPT_VERSION = 2;
+export const EXTRACTION_PROMPT_VERSION = 3;
 export const RECONCILIATION_PROMPT_VERSION = 0;
 export const EMBEDDING_PROMPT_VERSION = 0;
 

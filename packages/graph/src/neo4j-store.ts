@@ -27,6 +27,7 @@ import {
 import { readVectorIndexDims } from './cypher.js';
 import {
   buildCountNodes,
+  buildFindAnyEntityByNormalizedSurface,
   buildFindByNormalizedSurface,
   buildFindClaimsForSubject,
   buildIdConstraint,
@@ -360,6 +361,25 @@ export const createNeo4jGraph = (config: Neo4jConfig): GraphStore => {
     });
   };
 
+  const findEntityByNormalizedSurfaceAcrossTypes = async (
+    labels: EntityType[],
+    surfaceForms: string[],
+  ): Promise<{ id: string; matchedType: EntityType; matchedSurface: string } | null> => {
+    if (surfaceForms.length === 0 || labels.length === 0) return null;
+    return await withSession(async (session) => {
+      const result = await session.run(buildFindAnyEntityByNormalizedSurface(labels), {
+        surfaces: surfaceForms,
+      });
+      const row = result.records[0];
+      if (row === undefined) return null;
+      return {
+        id: row.get('id') as string,
+        matchedType: row.get('matchedType') as EntityType,
+        matchedSurface: (row.get('matchedSurface') as string | null) ?? '',
+      };
+    });
+  };
+
   const upsertCooccurrenceEdge = async (input: {
     from: string;
     to: string;
@@ -411,6 +431,7 @@ export const createNeo4jGraph = (config: Neo4jConfig): GraphStore => {
     countNodes,
     listConceptSubgraph,
     findEntityByNormalizedSurface,
+    findEntityByNormalizedSurfaceAcrossTypes,
     findClaimsForSubject,
     upsertCooccurrenceEdge,
     close,

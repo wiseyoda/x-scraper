@@ -171,6 +171,34 @@ LIMIT 1`;
 };
 
 /**
+ * Cross-type surface lookup. Used as a second-pass after the
+ * type-scoped lookup misses, to catch the LLM emitting the same
+ * organization name once as Tool and once as Person across runs
+ * ("Anthropic" being the canonical example). Restricted to the
+ * "free-text proper-noun" types — Person/Tool/Concept — since those
+ * are the ones that legitimately get type-confused. Source/Article/
+ * Tweet/Video/PDF/Repo are anchored on URLs so type-scoping is
+ * still correct for them.
+ */
+export const buildFindAnyEntityByNormalizedSurface = (labels: EntityType[]): string => {
+  for (const l of labels) assertValidLabel(l);
+  // Build the disjunction of label predicates. WHERE clause runs an
+  // OR over the labels, then the same surface match as the
+  // single-label query.
+  const labelPredicate = labels.map((l) => `n:${l}`).join(' OR ');
+  return `MATCH (n)
+WHERE (${labelPredicate})
+  AND (
+    n.normalized_name IN $surfaces
+    OR ANY(a IN coalesce(n.normalized_aliases, []) WHERE a IN $surfaces)
+  )
+RETURN n.id AS id,
+       head(labels(n)) AS matchedType,
+       coalesce(n.normalized_name, head(n.normalized_aliases)) AS matchedSurface
+LIMIT 1`;
+};
+
+/**
  * Lookup current claims for a subject. Joins through the EXTRACTED_FROM
  * edge (current only — invalid_at IS NULL) so callers can invalidate
  * the right edge on UPDATE/DELETE.
