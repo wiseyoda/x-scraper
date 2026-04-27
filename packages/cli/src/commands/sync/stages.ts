@@ -70,7 +70,7 @@ export const fetchLinksStage = async (deps: SyncDeps, ctx: JobContext): Promise<
     ctx.source.expandedUrls !== undefined && ctx.source.expandedUrls.length > 0
       ? ctx.source.expandedUrls
       : ctx.source.body !== undefined && ctx.source.body.length > 0
-        ? ctx.source.body.match(URL_RE) ?? []
+        ? (ctx.source.body.match(URL_RE) ?? [])
         : [];
   const candidates: string[] = [];
   const seen = new Set<string>();
@@ -431,7 +431,15 @@ export const reconcileStage = async (deps: SyncDeps, ctx: JobContext): Promise<v
  * aliases, calls out URL aliases (so Obsidian renders them as links),
  * and lists the sources as wikilinks for click-through navigation.
  */
-type MergedEntityType = 'Person' | 'Tool' | 'Concept' | 'Repo' | 'Article' | 'Tweet' | 'Video' | 'PDF';
+type MergedEntityType =
+  | 'Person'
+  | 'Tool'
+  | 'Concept'
+  | 'Repo'
+  | 'Article'
+  | 'Tweet'
+  | 'Video'
+  | 'PDF';
 
 const writeMergedEntity = async (
   vault: SyncDeps['vault'],
@@ -477,7 +485,10 @@ const writeMergedEntity = async (
     // for the first write.
     name: existingName ?? entity.name,
   };
-  return await vault.write({ frontmatter: fm, body: buildEntityBody(mergedAliases, mergedSources) });
+  return await vault.write({
+    frontmatter: fm,
+    body: buildEntityBody(mergedAliases, mergedSources),
+  });
 };
 
 const buildEntityBody = (aliases: string[], sources: string[]): string => {

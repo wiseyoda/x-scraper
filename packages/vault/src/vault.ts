@@ -154,7 +154,7 @@ export const createMarkdownVault = (root: string): VaultStore => {
     // its Article entity-stub neighbours instead of in the flat sources/.
     const contentType =
       fm.type === 'Source' && 'content_type' in fm && typeof fm.content_type === 'string'
-        ? (fm.content_type)
+        ? fm.content_type
         : undefined;
     const dir = dirForEntityType(fm.type, contentType);
     const file = safeJoin(root, dir, fileBasename(fm.id));

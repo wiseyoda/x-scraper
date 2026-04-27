@@ -1,0 +1,1627 @@
+{
+  "timestamp": "2026-04-27T03:33:24.948119Z",
+  "git_sha": "f1b808f12ca865f9e23e785aa19cc9b996c5d0f1",
+  "total_files": 242,
+  "total_lines": {
+    "total": 28444,
+    "code": 22530,
+    "blank": 3329,
+    "comment": 2585
+  },
+  "by_language": {
+    "JSON": {
+      "files": 40,
+      "lines": {
+        "total": 934,
+        "code": 931,
+        "blank": 3,
+        "comment": 0
+      }
+    },
+    "JavaScript": {
+      "files": 1,
+      "lines": {
+        "total": 72,
+        "code": 22,
+        "blank": 1,
+        "comment": 49
+      }
+    },
+    "Markdown": {
+      "files": 12,
+      "lines": {
+        "total": 1428,
+        "code": 1010,
+        "blank": 418,
+        "comment": 0
+      }
+    },
+    "Other": {
+      "files": 8,
+      "lines": {
+        "total": 120,
+        "code": 104,
+        "blank": 16,
+        "comment": 0
+      }
+    },
+    "TypeScript": {
+      "files": 176,
+      "lines": {
+        "total": 20706,
+        "code": 16382,
+        "blank": 1796,
+        "comment": 2528
+      }
+    },
+    "YAML": {
+      "files": 5,
+      "lines": {
+        "total": 5184,
+        "code": 4081,
+        "blank": 1095,
+        "comment": 8
+      }
+    }
+  },
+  "hotspots": [
+    {
+      "file": "packages/cli/src/bin.ts",
+      "function": "<anonymous>",
+      "cyclomatic": 84,
+      "cognitive": 124,
+      "lines": 288
+    },
+    {
+      "file": "packages/cli/src/commands/sync/stages.ts",
+      "function": "<anonymous>",
+      "cyclomatic": 34,
+      "cognitive": 50,
+      "lines": 199
+    },
+    {
+      "file": "packages/cli/src/commands/bookmarks.ts",
+      "function": "<anonymous>",
+      "cyclomatic": 24,
+      "cognitive": 57,
+      "lines": 210
+    },
+    {
+      "file": "spikes/backfill-derived-urls.ts",
+      "function": "<anonymous>",
+      "cyclomatic": 18,
+      "cognitive": 47,
+      "lines": 99
+    },
+    {
+      "file": "packages/cli/src/commands/sync/stages.ts",
+      "function": "<anonymous>",
+      "cyclomatic": 17,
+      "cognitive": 23,
+      "lines": 104
+    },
+    {
+      "file": "packages/cli/src/commands/sync/stages.ts",
+      "function": "<anonymous>",
+      "cyclomatic": 17,
+      "cognitive": 18,
+      "lines": 89
+    },
+    {
+      "file": "packages/cli/src/commands/topic.ts",
+      "function": "<anonymous>",
+      "cyclomatic": 17,
+      "cognitive": 13,
+      "lines": 161
+    },
+    {
+      "file": "packages/embeddings/src/http.ts",
+      "function": "<anonymous>",
+      "cyclomatic": 17,
+      "cognitive": 37,
+      "lines": 85
+    },
+    {
+      "file": "packages/ingestor/src/youtube.ts",
+      "function": "<anonymous>",
+      "cyclomatic": 16,
+      "cognitive": 48,
+      "lines": 34
+    },
+    {
+      "file": "packages/search/src/auto-expand.ts",
+      "function": "<anonymous>",
+      "cyclomatic": 16,
+      "cognitive": 28,
+      "lines": 55
+    }
+  ],
+  "dependencies": {
+    "manifest_count": 18,
+    "direct": 149,
+    "transitive": null,
+    "manifests": [
+      {
+        "name": "package.json",
+        "ecosystem": "Npm",
+        "deps": 24
+      },
+      {
+        "name": "package.json",
+        "ecosystem": "Npm",
+        "deps": 18
+      },
+      {
+        "name": "package.json",
+        "ecosystem": "Npm",
+        "deps": 7
+      },
+      {
+        "name": "package.json",
+        "ecosystem": "Npm",
+        "deps": 5
+      },
+      {
+        "name": "package.json",
+        "ecosystem": "Npm",
+        "deps": 7
+      },
+      {
+        "name": "package.json",
+        "ecosystem": "Npm",
+        "deps": 6
+      },
+      {
+        "name": "package.json",
+        "ecosystem": "Npm",
+        "deps": 7
+      },
+      {
+        "name": "package.json",
+        "ecosystem": "Npm",
+        "deps": 6
+      },
+      {
+        "name": "package.json",
+        "ecosystem": "Npm",
+        "deps": 10
+      },
+      {
+        "name": "package.json",
+        "ecosystem": "Npm",
+        "deps": 7
+      },
+      {
+        "name": "package.json",
+        "ecosystem": "Npm",
+        "deps": 8
+      },
+      {
+        "name": "package.json",
+        "ecosystem": "Npm",
+        "deps": 3
+      },
+      {
+        "name": "package.json",
+        "ecosystem": "Npm",
+        "deps": 7
+      },
+      {
+        "name": "package.json",
+        "ecosystem": "Npm",
+        "deps": 8
+      },
+      {
+        "name": "package.json",
+        "ecosystem": "Npm",
+        "deps": 10
+      },
+      {
+        "name": "package.json",
+        "ecosystem": "Npm",
+        "deps": 5
+      },
+      {
+        "name": "package.json",
+        "ecosystem": "Npm",
+        "deps": 5
+      },
+      {
+        "name": "package.json",
+        "ecosystem": "Npm",
+        "deps": 6
+      }
+    ]
+  },
+  "documentation": {
+    "file_count": 12,
+    "total_lines": 1428,
+    "total_chars": 92993,
+    "doc_to_code_ratio": 0.06338215712383488,
+    "readme_score": 0.6,
+    "readme_sections": ["install", "api", "license"],
+    "dir_coverage": 0.05128205128205128
+  },
+  "ai_analysis": {
+    "architecture": {
+      "description": "x-scraper is a local-first knowledge graph system built from X.com bookmarks, likes, and posts. It's a TypeScript monorepo that treats a git-tracked Markdown vault as the canonical source of truth, derives a Neo4j graph index from it, and exposes data through CLI, REST, and MCP interfaces. The architecture follows hexagonal principles: each package exposes a port (interface) and adapters implement concrete providers (Gemini/OpenAI for embeddings, Claude for LLM, Neo4j for graph storage, SQLite for queue). All external JSON is Zod-validated at package boundaries. The system handles multi-step extraction pipelines (bookmarks → ingestor → reconciliation → embeddings → graph population) with durable job queueing.",
+      "patterns": [
+        "Hexagonal architecture (ports and adapters)",
+        "Provider pattern (EmbeddingProvider, LlmProvider)",
+        "Zod validation at system boundaries",
+        "Canonical vault with derived graph index",
+        "Durable job queue with cost ledger",
+        "Monorepo with clear package responsibilities",
+        "Multi-interface exposure (CLI, REST, MCP)"
+      ],
+      "design_approach": "Hexagonal monorepo with adapter-based provider integration"
+    },
+    "features": {
+      "features": [
+        {
+          "name": "Repo bootstrap + TypeScript monorepo",
+          "status": "complete",
+          "description": "pnpm workspaces, tsconfig, eslint, prettier, vitest, tsup, commitlint, GitHub Actions CI"
+        },
+        {
+          "name": "X.com authentication + bookmarks fetch",
+          "status": "complete",
+          "description": "Cookie import + Patchright fallback auth; GraphQL pagination with cursor loop; normalized BookmarkRecord objects"
+        },
+        {
+          "name": "Markdown vault + frontmatter codec",
+          "status": "complete",
+          "description": "Zod schemas for all entity types; vault.read/write/list; auto-init with git tracking"
+        },
+        {
+          "name": "SQLite job queue + cost ledger",
+          "status": "complete",
+          "description": "Durable queue with stages, idempotency keys, retries, DLQ; cost tracking for LLM/embedding calls"
+        },
+        {
+          "name": "Neo4j graph database",
+          "status": "complete",
+          "description": "Node/edge schema for bi-temporal knowledge graph; native HNSW vector index (1536 dims)"
+        },
+        {
+          "name": "Embedding provider (Gemini + OpenAI)",
+          "status": "complete",
+          "description": "EmbeddingProvider port; Gemini embedding-2-preview primary; OpenAI fallback; batching + cost-ledger integration"
+        },
+        {
+          "name": "LLM provider (Claude Sonnet/Haiku)",
+          "status": "complete",
+          "description": "LlmProvider port with prompt caching; extraction prompts; Zod-validated output"
+        },
+        {
+          "name": "Entity resolution + reconciliation",
+          "status": "complete",
+          "description": "Vector candidate + LLM judge; ADD/UPDATE/DELETE/NONE per-claim; contradiction detection; vault round-trip"
+        },
+        {
+          "name": "Community detection + topic synthesis",
+          "status": "complete",
+          "description": "Leiden clustering over Concept/Topic subgraph; periodic recluster + Sonnet topic.md generation"
+        },
+        {
+          "name": "Article extractor (Readability + Patchright)",
+          "status": "complete",
+          "description": "Extract article text, metadata, and clean HTML; Patchright rendered fallback"
+        },
+        {
+          "name": "GitHub repo extractor",
+          "status": "complete",
+          "description": "Octokit + shallow clone; top-level files + README extraction"
+        },
+        {
+          "name": "YouTube transcript extractor",
+          "status": "complete",
+          "description": "youtube-transcript + yt-dlp fallback for video transcription"
+        },
+        {
+          "name": "PDF extractor",
+          "status": "complete",
+          "description": "pdfjs-dist text extraction with Uint8Array handling"
+        },
+        {
+          "name": "X Article ingestor",
+          "status": "wip",
+          "description": "Handle articles shared as X bookmarks; auto-extract content + metadata"
+        },
+        {
+          "name": "Correctness bug fixes (12 fixes)",
+          "status": "wip",
+          "description": "Entity normalization, content_type routing, edge-case handling in extraction/reconciliation"
+        },
+        {
+          "name": "MCP server surface",
+          "status": "complete",
+          "description": "xs-mcp with search_vault, read_source, queue_status tools; wired into Claude Code"
+        },
+        {
+          "name": "REST API (Hono)",
+          "status": "complete",
+          "description": "localhost:7777 bearer-protected API mirroring MCP surface"
+        },
+        {
+          "name": "CLI tools suite",
+          "status": "complete",
+          "description": "xs init/auth/sync/status/cost/doctor/bookmarks/topic/reindex/schedule/mcp/review"
+        },
+        {
+          "name": "Weekly digests + launchd scheduler",
+          "status": "complete",
+          "description": "Digest.md generation; hourly sync plist via launchd"
+        },
+        {
+          "name": "Bot-mitigation hardening",
+          "status": "complete",
+          "description": "Jittered cadence, session caps, queryId hot-reload, 429 handling + Playwright integration tests"
+        },
+        {
+          "name": "Observability + performance",
+          "status": "complete",
+          "description": "pino NDJSON logger with rotation; perf timers; TUI status dashboard; regression gates"
+        },
+        {
+          "name": "Documentation + onboarding",
+          "status": "complete",
+          "description": "README, ARCHITECTURE, ROADMAP, coding standards, HANDOFF guide"
+        },
+        {
+          "name": "Likes + own posts ingestion",
+          "status": "planned",
+          "description": "Extend scraper for likes and posts source types; same pipeline as bookmarks"
+        },
+        {
+          "name": "Search + auto-expand integration",
+          "status": "planned",
+          "description": "Exa/Tavily/Brave adapters; high-signal heuristics trigger discovery; URL canonicalization + dedupe"
+        },
+        {
+          "name": "Lightweight web UI for review",
+          "status": "planned",
+          "description": "Read-only vault + Cypher REPL interface; quality check and manual verification dashboard"
+        }
+      ]
+    },
+    "effort": {
+      "existing_hours": 680.0,
+      "remaining_hours": 55.0,
+      "summary": "Mature TypeScript monorepo (17 packages, 301 tests, Neo4j/embeddings/LLM). Multi-system integration (scrapers, vector indexing, graph ER, CLI/REST/MCP). Current work: X Article ingestor + 12 feature upgrades. Remaining: lightweight web UI for manual verification, ramped re-ingest workflows, final polish for 1.0 release."
+    }
+  },
+  "skipped_files": 0,
+  "risk_hotspots": [
+    {
+      "file": "packages/cli/src/bin.ts",
+      "churn_count": 7,
+      "max_complexity": 84
+    },
+    {
+      "file": "packages/cli/src/commands/sync/stages.ts",
+      "churn_count": 7,
+      "max_complexity": 34
+    },
+    {
+      "file": "packages/cli/src/commands/bookmarks.ts",
+      "churn_count": 6,
+      "max_complexity": 24
+    },
+    {
+      "file": "packages/cli/src/commands/topic.ts",
+      "churn_count": 5,
+      "max_complexity": 17
+    },
+    {
+      "file": "pnpm-lock.yaml",
+      "churn_count": 19,
+      "max_complexity": 1
+    },
+    {
+      "file": "spikes/backfill-derived-urls.ts",
+      "churn_count": 1,
+      "max_complexity": 18
+    },
+    {
+      "file": "packages/embeddings/src/http.ts",
+      "churn_count": 1,
+      "max_complexity": 17
+    },
+    {
+      "file": "packages/ingestor/src/youtube.ts",
+      "churn_count": 1,
+      "max_complexity": 16
+    },
+    {
+      "file": "packages/search/src/auto-expand.ts",
+      "churn_count": 1,
+      "max_complexity": 16
+    },
+    {
+      "file": "vitest.config.ts",
+      "churn_count": 14,
+      "max_complexity": 1
+    },
+    {
+      "file": "tsconfig.json",
+      "churn_count": 12,
+      "max_complexity": 1
+    },
+    {
+      "file": "HANDOFF.md",
+      "churn_count": 9,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/queue/src/queue.ts",
+      "churn_count": 8,
+      "max_complexity": 1
+    },
+    {
+      "file": "package.json",
+      "churn_count": 6,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/graph/src/neo4j-store.ts",
+      "churn_count": 6,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/graph/src/types.ts",
+      "churn_count": 6,
+      "max_complexity": 1
+    },
+    {
+      "file": "CLAUDE.md",
+      "churn_count": 5,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/__tests__/sync.test.ts",
+      "churn_count": 5,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/commands/sync/wire.ts",
+      "churn_count": 5,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/graph/src/cypher.ts",
+      "churn_count": 5,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/queue/src/__tests__/queue.test.ts",
+      "churn_count": 5,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/queue/src/schema.ts",
+      "churn_count": 5,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/scraper/src/index.ts",
+      "churn_count": 5,
+      "max_complexity": 1
+    },
+    {
+      "file": "README.md",
+      "churn_count": 4,
+      "max_complexity": 1
+    },
+    {
+      "file": "eslint.config.js",
+      "churn_count": 4,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/__tests__/reindex.test.ts",
+      "churn_count": 4,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/__tests__/topic.test.ts",
+      "churn_count": 4,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/scraper/src/parsing.ts",
+      "churn_count": 4,
+      "max_complexity": 1
+    },
+    {
+      "file": ".gitignore",
+      "churn_count": 3,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/package.json",
+      "churn_count": 3,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/__tests__/bookmarks.test.ts",
+      "churn_count": 3,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/commands/schedule.ts",
+      "churn_count": 3,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/commands/sync/types.ts",
+      "churn_count": 3,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/graph/src/__tests__/cypher.test.ts",
+      "churn_count": 3,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/graph/src/index.ts",
+      "churn_count": 3,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/ingestor/src/index.ts",
+      "churn_count": 3,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/queue/src/index.ts",
+      "churn_count": 3,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/queue/src/types.ts",
+      "churn_count": 3,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/reconciler/src/types.ts",
+      "churn_count": 3,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/scraper/src/bookmarks.ts",
+      "churn_count": 3,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/scraper/src/constants.ts",
+      "churn_count": 3,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/vault/src/vault.ts",
+      "churn_count": 3,
+      "max_complexity": 1
+    },
+    {
+      "file": "spikes/3-neo4j.ts",
+      "churn_count": 3,
+      "max_complexity": 1
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "docs/ARCHITECTURE.md",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "docs/CODING_STANDARDS.md",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/__tests__/commands.test.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/commands/cost.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/commands/doctor.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/commands/sync/dispatcher.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/tsconfig.json",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/core/src/url.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/digest/src/__tests__/digest.test.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/embeddings/src/cost.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/embeddings/src/gemini-adapter.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/embeddings/src/openai-adapter.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/extractor/src/__tests__/golden.test.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/extractor/src/extractor.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/graph/src/__tests__/neo4j-store.integration.test.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/graph/src/constants.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/ingestor/package.json",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/ingestor/src/constants.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/ingestor/src/types.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/llm/src/claude-adapter.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/llm/src/cost.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/llm/src/types.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/queue/src/constants.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/reconciler/src/__tests__/reconcile.test.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/reconciler/src/er.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/reconciler/src/index.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/scraper/src/__tests__/parsing.test.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/scraper/src/__tests__/payload.test.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/vault/src/__tests__/vault.test.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/vault/src/paths.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "spikes/3-kuzu.ts",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": "spikes/RESULTS.md",
+      "churn_count": 2,
+      "max_complexity": 1
+    },
+    {
+      "file": ".editorconfig",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": ".gitattributes",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": ".github/workflows/bench.yml",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": ".github/workflows/gitleaks.yml",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": ".nvmrc",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": ".prettierignore",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": ".prettierrc",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "CHANGELOG.md",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "CONTRIBUTING.md",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "LICENSE",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "docs/CODEX_REVIEW.md",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "docs/ROADMAP.md",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "docs/SPIKES.md",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/.gitkeep",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/__tests__/argparse.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/__tests__/mcp-register.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/__tests__/review.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/argparse.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/commands/auth.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/commands/init.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/commands/mcp-register.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/commands/reindex.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/commands/review.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/commands/status.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/commands/sync/index.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/commands/trends.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/config.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/constants.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/cli/src/index.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/community/package.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/community/src/__tests__/detector.bench.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/community/src/__tests__/detector.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/community/src/detector.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/community/src/index.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/community/src/types.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/community/tsconfig.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/core/package.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/core/src/__tests__/frontmatter-schemas.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/core/src/__tests__/frontmatter.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/core/src/__tests__/hashing.bench.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/core/src/__tests__/ids.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/core/src/__tests__/url.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/core/src/constants.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/core/src/errors.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/core/src/frontmatter-schemas.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/core/src/frontmatter.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/core/src/hashing.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/core/src/ids.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/core/src/index.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/core/tsconfig.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/digest/package.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/digest/src/__tests__/iso-week.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/digest/src/__tests__/launchd.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/digest/src/digest.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/digest/src/index.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/digest/src/iso-week.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/digest/src/launchd.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/digest/tsconfig.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/embeddings/package.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/embeddings/src/__tests__/gemini.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/embeddings/src/__tests__/http.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/embeddings/src/__tests__/openai.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/embeddings/src/constants.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/embeddings/src/index.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/embeddings/src/types.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/embeddings/tsconfig.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/extractor/package.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/extractor/src/__tests__/extractor.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/extractor/src/__tests__/golden/expected/anthropic-claude-code.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/extractor/src/__tests__/golden/expected/neo4j-vector-index.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/extractor/src/__tests__/golden/expected/typescript-pnpm.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/extractor/src/__tests__/golden/fixtures/anthropic-claude-code.txt",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/extractor/src/__tests__/golden/fixtures/neo4j-vector-index.txt",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/extractor/src/__tests__/golden/fixtures/typescript-pnpm.txt",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/extractor/src/constants.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/extractor/src/index.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/extractor/src/prompts/extraction-v1.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/extractor/src/schemas.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/extractor/tsconfig.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/graph/package.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/graph/tsconfig.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/ingestor/src/__tests__/article.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/ingestor/src/__tests__/dispatcher.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/ingestor/src/__tests__/pdf.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/ingestor/src/__tests__/repo.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/ingestor/src/__tests__/youtube.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/ingestor/src/article.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/ingestor/src/dispatcher.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/ingestor/src/http.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/ingestor/src/pdf.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/ingestor/src/repo.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/ingestor/src/x-article.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/ingestor/tsconfig.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/llm/package.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/llm/src/__tests__/claude.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/llm/src/constants.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/llm/src/index.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/llm/tsconfig.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/mcp-server/package.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/mcp-server/src/__tests__/handlers.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/mcp-server/src/bin.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/mcp-server/src/handlers.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/mcp-server/src/index.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/mcp-server/src/server.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/mcp-server/src/types.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/mcp-server/tsconfig.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/observability/package.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/observability/src/__tests__/logger.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/observability/src/__tests__/timing.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/observability/src/index.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/observability/src/logger.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/observability/src/timing.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/observability/tsconfig.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/queue/package.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/queue/tsconfig.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/reconciler/package.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/reconciler/src/__tests__/er.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/reconciler/src/__tests__/normalize.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/reconciler/src/__tests__/reconcile.bench.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/reconciler/src/constants.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/reconciler/src/normalize.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/reconciler/src/reconcile.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/reconciler/tsconfig.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/rest/package.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/rest/src/__tests__/app.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/rest/src/app.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/rest/src/bin.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/rest/src/constants.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/rest/src/index.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/rest/tsconfig.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/scraper/package.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/scraper/src/__tests__/bot-mitigation.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/scraper/src/auth.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/scraper/src/bot-mitigation.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/scraper/src/payload.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/scraper/src/types.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/scraper/tsconfig.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/search/package.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/search/src/__tests__/auto-expand.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/search/src/__tests__/providers.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/search/src/brave.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/search/src/constants.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/search/src/exa.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/search/src/http.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/search/src/index.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/search/src/tavily.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/search/src/types.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/search/tsconfig.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/vault/package.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/vault/src/__tests__/paths.test.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/vault/src/index.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "packages/vault/tsconfig.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "pnpm-workspace.yaml",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "spikes/1-auth.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "spikes/2-bookmarks.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "spikes/4-gemini.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "spikes/5-claude.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "spikes/6-mcp-server.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "spikes/6-mcp.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "spikes/7-readability.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "spikes/README.md",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "spikes/backfill-cooccurrence.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "spikes/backfill-entity-embeddings.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "spikes/backfill-normalized-names.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "spikes/inspect-bookmark.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "spikes/migrate-source-folders.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "spikes/probe-x-article.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "spikes/verify-keys.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "spikes/verify-pdf-ingestor.ts",
+      "churn_count": 1,
+      "max_complexity": 1
+    },
+    {
+      "file": "tsconfig.base.json",
+      "churn_count": 1,
+      "max_complexity": 1
+    }
+  ]
+}

@@ -28,6 +28,7 @@ d1906da  style: prettier --write across cli/extractor/graph/queue/scraper
 landed.
 
 **Live data state at end of session 5 (likely to be wiped — see Next Steps):**
+
 - bookmark_ledger: 210 organic synced + 134 derived new (drain killed mid-flight)
 - vault: 211 Source.md (210 tweets + 1 pdf), 1682 Claim.md, ~800 entity files
 - Neo4j: 214 Source, 1644 Claim, 492 Concept, 299 Tool, 209 Tweet, 204 Person,
@@ -63,9 +64,9 @@ landed.
   backfilled with embeddings.
 - **T12** — Schema v3: bookmark_ledger gets `parent_entry_id`, `source_kind`
   ('organic'|'derived'), `text_hash`, `superseded_at`. Forward migration v2→v3
-  + v3→v4 (the cost_ledger.entry_id ALTER, see T22). `runMigration` helper
-  parses SQL line comments + skips ALTER ADD COLUMN when the column already
-  exists (so test-time downgrades-then-rewalks survive).
+  - v3→v4 (the cost_ledger.entry_id ALTER, see T22). `runMigration` helper
+    parses SQL line comments + skips ALTER ADD COLUMN when the column already
+    exists (so test-time downgrades-then-rewalks survive).
 - **T13** — Hard auto-expand. `fetchLinksStage` rewrote: extracts URLs from
   source body, dedupes via `findBookmarkBySourceUrl`, drops same-host
   self-references and tweet permalinks, enqueues derived ledger rows with
@@ -181,7 +182,7 @@ landed.
   out of per-bookmark wire — deferred.
 - **Topic detection re-run never happened (T17).** The cooccurrence
   backfill bumped edges 21x but we didn't re-run `xs topic detect
-  --synthesize` to compare community quality. Deferred.
+--synthesize` to compare community quality. Deferred.
 - **`xs trends` "Top authors" section is empty.** The Cypher uses
   `s.host_metadata.byline IS NOT NULL` but the property is stored as a
   nested map; Cypher dotted access into a JSON map needs different syntax.
@@ -271,7 +272,7 @@ landed.
 
 1. **Snapshot the current state** before wiping. Run the cp commands in the
    Traps section. Confirm with `ls /tmp/x-scraper-vault-pre-reset/sources |
-   wc -l`.
+wc -l`.
 2. **Wipe**: `rm -rf ~/Documents/x-scraper-vault`,
    `rm ~/.config/x-scraper/queue.sqlite ~/.config/x-scraper/queue.sqlite-{shm,wal}`,
    `cypher-shell -u neo4j -p 'xscraper-local-dev' -d neo4j "MATCH (n) DETACH DELETE n"`,

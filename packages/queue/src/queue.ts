@@ -823,9 +823,7 @@ export const createSqliteQueue = (dbPath: string): JobQueue => {
     tweetId: string,
   ): { current: BookmarkEntry | null; totalVersions: number } => {
     const rows = db
-      .prepare(
-        `SELECT * FROM bookmark_ledger WHERE tweet_id = ? ORDER BY captured_at ASC`,
-      )
+      .prepare(`SELECT * FROM bookmark_ledger WHERE tweet_id = ? ORDER BY captured_at ASC`)
       .all(tweetId) as BookmarkRow[];
     if (rows.length === 0) {
       return { current: null, totalVersions: 0 };

@@ -39,22 +39,22 @@ const makePage = (fx: PageFixture): XArticlePage => ({
           };
     const fakeWindow = { location: { href: fx.canonicalUrl ?? 'https://x.com/i/article/123' } };
     const fakeDocument = {
-      querySelector: <E>(sel: string): E | null => {
+      querySelector: (sel: string): unknown => {
         if (sel === selectors.title) {
-          return { textContent: fx.title } as unknown as E;
+          return { textContent: fx.title };
         }
         if (sel === selectors.content) {
           return {
             innerText: fx.contentInnerText,
             textContent: fx.contentTextContent ?? fx.contentInnerText,
-          } as unknown as E;
+          };
         }
         if (sel === selectors.userCell) {
           return {
             textContent: fx.userCellText,
             querySelectorAll: (q: string): unknown[] =>
               q.startsWith('a[href') && fakeAnchor !== null ? [fakeAnchor] : [],
-          } as unknown as E;
+          };
         }
         return null;
       },

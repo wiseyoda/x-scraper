@@ -498,9 +498,7 @@ describe('runSync', () => {
       relationships: [],
     });
     const extractionB = JSON.stringify({
-      entities: [
-        { id: 'tool_x', type: 'Tool', name: 'Vercel', aliases: ['https://vercel.com'] },
-      ],
+      entities: [{ id: 'tool_x', type: 'Tool', name: 'Vercel', aliases: ['https://vercel.com'] }],
       claims: [],
       relationships: [],
     });
@@ -615,9 +613,7 @@ describe('runSync', () => {
     // article as an entity. Self-ref filter only drops entities whose
     // name matches the source's title.
     const referencingExtraction = JSON.stringify({
-      entities: [
-        { id: 'art_other', type: 'Article', name: 'A Different Article', aliases: [] },
-      ],
+      entities: [{ id: 'art_other', type: 'Article', name: 'A Different Article', aliases: [] }],
       claims: [],
       relationships: [],
     });
@@ -648,7 +644,7 @@ describe('runSync', () => {
 
     const articleUpserts = graph.upserts.filter((u) => u.type === 'Article');
     expect(articleUpserts.length).toBe(1);
-    expect(articleUpserts[0]?.props?.name).toBe('A Different Article');
+    expect(articleUpserts[0]?.props.name).toBe('A Different Article');
   });
 
   it('hard auto-expand: prefers expandedUrls over body t.co shortlinks', async () => {

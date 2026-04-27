@@ -147,7 +147,7 @@ export const createXArticleIngestor = (config: XArticleConfig): Ingestor => {
           for (const a of anchors) {
             const href = a.getAttribute('href') ?? '';
             const m = /^\/([A-Za-z0-9_]{1,15})(?:[/?#]|$)/.exec(href);
-            if (m && m[1] !== undefined) {
+            if (m?.[1] !== undefined) {
               handle = m[1];
               break;
             }
