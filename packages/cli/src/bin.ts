@@ -33,11 +33,13 @@ import {
   runScheduleUninstall,
   type ScheduleMode,
 } from './commands/schedule.js';
+import { runSearchIdeas } from './commands/search-ideas.js';
 import { runStatus } from './commands/status.js';
 import { runSync } from './commands/sync/index.js';
 import { buildCuratedSources, wireSyncDeps } from './commands/sync/wire.js';
 import { runTopicDetect } from './commands/topic.js';
 import { runTrends } from './commands/trends.js';
+import { runWhatsNew } from './commands/whats-new.js';
 import { resolveConfig } from './config.js';
 import { ENV_FILE_PATH, EXIT_FAIL, EXIT_OK, EXIT_USAGE } from './constants.js';
 
@@ -97,6 +99,9 @@ Commands:
        [--mode=run-cycle|bookmarks-sync]
   related <id> [--limit=N]          Rank related vault nodes for an id (connection engine)
        [--vault-only]               Skip Neo4j (co-entity/claim/author only)
+  whats-new [--since=ISO] [--limit=N]  Attachment events + activity since cutoff
+  search-ideas [--query=...]        Search Idea subjects/bodies; returns idea ids
+       [--status=draft|confirmed|rejected] [--limit=N]
   review                            List entity records that need human triage
   help                              Show this message
 
@@ -488,6 +493,51 @@ const runMain = async (): Promise<number> => {
       if (result.hits.length === 0) {
         console.log('  (none)');
       }
+      return EXIT_OK;
+    }
+    case 'whats-new': {
+      const since = args.options.get('since');
+      const limitStr = args.options.get('limit');
+      const result = await runWhatsNew(config, {
+        ...(since === undefined ? {} : { since }),
+        ...(limitStr === undefined ? {} : { limit: Number(limitStr) }),
+      });
+      console.log(`whats-new since ${result.since}: ${String(result.events.length)} attachments`);
+      for (const e of result.events) {
+        console.log(
+          `  ${e.sourceId} → ${e.targetKind} ${e.targetId}  — ${e.reason} (${e.score.toFixed(1)})`,
+        );
+      }
+      if (result.events.length === 0) console.log('  (none)');
+      return EXIT_OK;
+    }
+    case 'search-ideas': {
+      const query = args.options.get('query') ?? args.positionals[0];
+      const statusArg = args.options.get('status');
+      if (
+        statusArg !== undefined &&
+        statusArg !== 'draft' &&
+        statusArg !== 'confirmed' &&
+        statusArg !== 'rejected'
+      ) {
+        console.error('xs search-ideas: --status must be draft|confirmed|rejected');
+        return EXIT_USAGE;
+      }
+      const limitStr = args.options.get('limit');
+      const result = await runSearchIdeas(config, {
+        ...(query === undefined ? {} : { query }),
+        ...(statusArg === undefined
+          ? {}
+          : { status: statusArg }),
+        ...(limitStr === undefined ? {} : { limit: Number(limitStr) }),
+      });
+      console.log(`search-ideas: ${String(result.hits.length)} hits`);
+      for (const h of result.hits) {
+        console.log(
+          `  ${h.status.padEnd(10)}  src=${String(h.sourceCount).padStart(2)}  ${h.id}  ${h.subject}`,
+        );
+      }
+      if (result.hits.length === 0) console.log('  (none)');
       return EXIT_OK;
     }
     case 'review': {

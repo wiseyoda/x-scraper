@@ -10,6 +10,8 @@ import type { Logger } from '@x-scraper/observability';
 import type { VaultStore } from '@x-scraper/vault';
 
 import { clusterByEntity } from './cluster.js';
+import { SYNTHESIS_PROMPT_VERSION } from './constants.js';
+import { rankClustersByDiversity } from './diversity.js';
 import { ideaIdForCluster, persistIdea } from './persist.js';
 import { synthesizeCluster, SynthesizerError } from './synthesize.js';
 import type { ClaimRef, EntityRef, SynthesisResult } from './types.js';
@@ -112,7 +114,8 @@ export const synthesizeAll = async (input: SynthesizeAllInput): Promise<Synthesi
     entities: allEntities.length,
   });
 
-  const { admitted, belowThreshold } = clusterByEntity(allClaims, allEntities);
+  const { admitted: rawAdmitted, belowThreshold } = clusterByEntity(allClaims, allEntities);
+  const admitted = rankClustersByDiversity(rawAdmitted);
   log.info('synthesize.clusters_admitted', {
     admitted: admitted.length,
     belowThreshold,
@@ -128,9 +131,10 @@ export const synthesizeAll = async (input: SynthesizeAllInput): Promise<Synthesi
     if (cap <= 0) break;
 
     if (input.force !== true) {
-      // Skip when an Idea for this exact (anchor, sources, prompt v)
-      // already exists.
-      const expectedId = ideaIdForCluster(cluster, 1);
+      // Skip when an Idea for this exact (anchor, prompt version) already exists.
+      // Id is stable on (anchor, prompt version) — re-synth with force updates
+      // the same record when new claims attach.
+      const expectedId = ideaIdForCluster(cluster, SYNTHESIS_PROMPT_VERSION);
       try {
         await input.vault.read(expectedId, 'Idea');
         skippedExisting += 1;

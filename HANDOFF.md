@@ -1,38 +1,40 @@
 # Session Handoff
 
-> Updated 2026-07-10 — Phase 1 complete (connection engine). See `docs/PRODUCT_PLAN.md`.
+> Updated 2026-07-10 — Phases 0–3 complete. Product plan at Phase 4 optional.
 
 ## Current State
 
-- **Branch:** `main` (local commits; Phase 0 + Phase 1 work)
-- **Product plan:** Phase 1 **done**; **Current phase: Phase 2** (living ideas & narrative digest)
-- **Tests:** 377 passed / 3 skipped (53 files), including `packages/related` (7)
-- **Keys:** Anthropic/Gemini/OpenAI verified live after billing fix
-- **Organic ledger:** fully drained (214 synced organic)
+- **Branch:** `main` with local commits through Phase 2–3 work
+- **Tests:** ~396 passed / 3 skipped
+- **Product plan:** Phases 0–3 done; J1/J2/J3 assessed in PRODUCT_PLAN Working log
+- **Synthesizer:** prompt version **2** (research-thread body). Existing ideas remain v1 bodies until re-synth with `--force`
 
-## Phase 1 shipped
+## What shipped (Phases 2–3)
 
-- **Package:** `@x-scraper/related` — `related(id)`, `attachmentsSince()`, pure scorers
-- **CLI:** `xs related <id> [--limit=N] [--vault-only]`
-- **Web-ui:** `/sources/[id]` "Related in your vault"; homepage "What connected since…"
-- **run-cycle:** logs attachment event count after successful sync
+| Area | Surface |
+|------|---------|
+| Ideas | Structured thesis/evidence/open questions/watch-fors; diversity ranking |
+| Digest | Theme-forward markdown with idea ids |
+| Recall | MCP `related_to`, `whats_new`, `search_ideas`; CLI mirrors |
+| Inbox | Pipeline stage chip; fast primary from payload (unit-tested) |
 
-## Key commands
+## Commands
 
 ```bash
-/opt/homebrew/bin/node packages/cli/dist/bin.js related idea_8ec95fc7 --limit=8 --vault-only
-pnpm exec vitest run packages/related
-pnpm --filter @x-scraper/web-ui dev   # user terminal
+/opt/homebrew/bin/node packages/cli/dist/bin.js related idea_8ec95fc7 --vault-only
+/opt/homebrew/bin/node packages/cli/dist/bin.js search-ideas --query=claude --limit=10
+/opt/homebrew/bin/node packages/cli/dist/bin.js whats-new --limit=10
+/opt/homebrew/bin/node packages/cli/dist/bin.js ideas synthesize --force --limit=3   # re-draft with v2 (costs LLM)
+pnpm --filter @x-scraper/web-ui dev
 ```
 
-## Next Steps
+## Next (optional)
 
-1. **Phase 2** — idea prompt rewrite (thesis/evidence/open questions), digest narrative
-2. Optional: GraphStore.getEmbedding to activate live embedding-neighbor scorer
-3. Optional: drain derived ledger backlog with `--kind=derived` when useful
+1. Re-synthesize high-value ideas with v2 (`ideas synthesize --force`) for research-thread bodies
+2. `xs schedule install --mode=run-cycle` for autonomous growth
+3. Phase 4 polish if desired
 
 ## Traps
 
-- Web-ui must not reimplement ranking — import `@x-scraper/related` only
-- NEVER import better-sqlite3 from web-ui
-- related corpus is process-cached ~30s (`invalidateRelatedCache`)
+- v2 idea ids differ from v1 (prompt version in id key) — force re-synth creates parallel drafts under new ids unless you map carefully; id is `anchor|v{version}`
+- Web-ui still uses related vault-only (no graph embeddings)

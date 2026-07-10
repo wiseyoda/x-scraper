@@ -2,7 +2,11 @@ import type { EntityType, IdeaFrontmatter } from '@x-scraper/core';
 import type { VaultListEntry, VaultRecord, VaultStore } from '@x-scraper/vault';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { AUTO_CONFIRM_CONFIDENCE, AUTO_CONFIRM_SOURCES } from '../constants.js';
+import {
+  AUTO_CONFIRM_CONFIDENCE,
+  AUTO_CONFIRM_SOURCES,
+  SYNTHESIS_PROMPT_VERSION,
+} from '../constants.js';
 import { ideaIdForCluster, persistIdea } from '../persist.js';
 import type { ClaimCluster, ClaimRef, IdeaDraft } from '../types.js';
 
@@ -60,7 +64,11 @@ const cluster = (over: Partial<ClaimCluster> & { sourceCount?: number }): ClaimC
 
 const draft = (confidence: number): IdeaDraft => ({
   title: 'Anthropic',
-  body: 'Synthesized body.',
+  body: '# Anthropic\n\n## Thesis\n\nAnthropic ships Claude.\n',
+  thesis: 'Anthropic ships Claude.',
+  evidence: ['Multi-source claims about Claude'],
+  openQuestions: ['How does pricing evolve?'],
+  watchFors: ['New model launches'],
   caveat: null,
   confidence,
 });
@@ -121,7 +129,7 @@ describe('persistIdea — auto-confirm policy', () => {
 
   it('preserves a manual confirm even when current evidence would not auto-confirm', async () => {
     const c = cluster({ sourceCount: AUTO_CONFIRM_SOURCES - 1 });
-    const id = ideaIdForCluster(c, 1);
+    const id = ideaIdForCluster(c, SYNTHESIS_PROMPT_VERSION);
     seed.set(id, {
       frontmatter: {
         id,
@@ -156,7 +164,7 @@ describe('persistIdea — auto-confirm policy', () => {
 
   it('preserves a manual reject even when current evidence would auto-confirm', async () => {
     const c = cluster({ sourceCount: AUTO_CONFIRM_SOURCES });
-    const id = ideaIdForCluster(c, 1);
+    const id = ideaIdForCluster(c, SYNTHESIS_PROMPT_VERSION);
     seed.set(id, {
       frontmatter: {
         id,
@@ -191,7 +199,7 @@ describe('persistIdea — auto-confirm policy', () => {
 
   it('downgrades a prior auto-confirm when evidence weakens', async () => {
     const c = cluster({ sourceCount: AUTO_CONFIRM_SOURCES - 1 });
-    const id = ideaIdForCluster(c, 1);
+    const id = ideaIdForCluster(c, SYNTHESIS_PROMPT_VERSION);
     seed.set(id, {
       frontmatter: {
         id,
@@ -226,7 +234,7 @@ describe('persistIdea — auto-confirm policy', () => {
 
   it('upgrades a stale draft to auto-confirmed when new evidence crosses the bar', async () => {
     const c = cluster({ sourceCount: AUTO_CONFIRM_SOURCES });
-    const id = ideaIdForCluster(c, 1);
+    const id = ideaIdForCluster(c, SYNTHESIS_PROMPT_VERSION);
     seed.set(id, {
       frontmatter: {
         id,
@@ -261,7 +269,7 @@ describe('persistIdea — auto-confirm policy', () => {
 
   it('preserves edited_body and created_at across re-synthesis (smoke)', async () => {
     const c = cluster({ sourceCount: AUTO_CONFIRM_SOURCES });
-    const id = ideaIdForCluster(c, 1);
+    const id = ideaIdForCluster(c, SYNTHESIS_PROMPT_VERSION);
     const created = STALE_NOW().toISOString();
     seed.set(id, {
       frontmatter: {

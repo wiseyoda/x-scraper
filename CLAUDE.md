@@ -137,4 +137,4 @@ TypeScript (Node 22.13+, ESM, pnpm 10) · Patchright (stealth Playwright) · **N
 
 ## Current status
 
-**Product plan (2026-07-10):** `docs/PRODUCT_PLAN.md` — interest graph. **Phase 0–1 complete**; **Phase 2** (living ideas) is current. Package `@x-scraper/related` + `xs related` + web-ui related/connections. ~377 package tests. See HANDOFF.md.
+**Product plan (2026-07-10):** `docs/PRODUCT_PLAN.md` — interest graph. **Phases 0–3 complete** (capture/connect/recall). Synthesizer v2 research threads; MCP related_to/whats_new/search_ideas; progressive inbox. ~396 tests. Phase 4 optional. See HANDOFF.md.

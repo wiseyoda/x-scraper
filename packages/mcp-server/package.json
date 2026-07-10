@@ -26,6 +26,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@x-scraper/core": "workspace:*",
     "@x-scraper/queue": "workspace:*",
+    "@x-scraper/related": "workspace:*",
     "@x-scraper/vault": "workspace:*",
     "zod": "^4.3.6"
   },

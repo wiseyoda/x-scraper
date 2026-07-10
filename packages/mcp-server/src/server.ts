@@ -14,7 +14,14 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ENTITY_TYPES } from '@x-scraper/core';
 import { z } from 'zod';
 
-import { getStatus, readSource, searchVault } from './handlers.js';
+import {
+  getStatus,
+  readSource,
+  relatedTo,
+  searchIdeas,
+  searchVault,
+  whatsNew,
+} from './handlers.js';
 import type { ServerContext } from './types.js';
 
 const SERVER_NAME = 'x-scraper';
@@ -90,6 +97,71 @@ export const buildMcpServer = (ctx: ServerContext): McpServer => {
       return {
         content: [{ type: 'text', text: JSON.stringify(report, null, 2) }],
       };
+    },
+  );
+
+  server.registerTool(
+    'related_to',
+    {
+      title: 'Related vault nodes',
+      description:
+        'Rank related sources/ideas/entities for a vault id using the shared connection engine.',
+      inputSchema: {
+        id: z.string().min(1).describe('Vault node id (source, idea, entity, …)'),
+        limit: z.number().int().min(1).max(MAX_LIMIT).optional(),
+      },
+    },
+    async (input) => {
+      const id = typeof input.id === 'string' ? input.id : '';
+      const limit = typeof input.limit === 'number' ? input.limit : undefined;
+      const payload = await relatedTo(ctx, {
+        id,
+        ...(limit === undefined ? {} : { limit }),
+      });
+      return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }] };
+    },
+  );
+
+  server.registerTool(
+    'whats_new',
+    {
+      title: "What's new",
+      description:
+        'Attachment events and recent ideas since an ISO timestamp (default: last 7 days).',
+      inputSchema: {
+        since: z.string().optional().describe('ISO cutoff; default 7 days ago'),
+        limit: z.number().int().min(1).max(MAX_LIMIT).optional(),
+      },
+    },
+    async (input) => {
+      const payload = await whatsNew(ctx, {
+        ...(typeof input.since === 'string' ? { since: input.since } : {}),
+        ...(typeof input.limit === 'number' ? { limit: input.limit } : {}),
+      });
+      return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }] };
+    },
+  );
+
+  server.registerTool(
+    'search_ideas',
+    {
+      title: 'Search ideas',
+      description: 'Search Idea records by subject/body/id substring; returns cited idea ids.',
+      inputSchema: {
+        query: z.string().optional(),
+        status: z.enum(['draft', 'confirmed', 'rejected']).optional(),
+        limit: z.number().int().min(1).max(MAX_LIMIT).optional(),
+      },
+    },
+    async (input) => {
+      const payload = await searchIdeas(ctx, {
+        ...(typeof input.query === 'string' ? { query: input.query } : {}),
+        ...(input.status === 'draft' || input.status === 'confirmed' || input.status === 'rejected'
+          ? { status: input.status }
+          : {}),
+        ...(typeof input.limit === 'number' ? { limit: input.limit } : {}),
+      });
+      return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }] };
     },
   );
 

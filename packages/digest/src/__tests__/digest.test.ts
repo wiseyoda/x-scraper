@@ -51,6 +51,7 @@ describe('buildDigest', () => {
     expect(artifact.body).toContain('src_alpha0001');
     expect(artifact.body).toContain('src_beta00002');
     expect(artifact.body).toContain('# Digest 2026-W17');
+    expect(artifact.body).toContain('## Themes');
   });
 
   it('routes through the LLM provider when supplied', async () => {

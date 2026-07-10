@@ -4,7 +4,7 @@
 > **Owner:** agent + Pat  
 > **Created:** 2026-07-10  
 > **Last updated:** 2026-07-10  
-> **Current phase:** Phase 2 — Living ideas & narrative digest  
+> **Current phase:** Phase 4 optional / product maintenance  
 
 > **North star:** Bookmark → named interest → connections → recall
 
@@ -317,13 +317,13 @@ Run with vault at `~/x-scraper-vault` (or `$XSCRAPER_VAULT`). Record results in 
 
 | ID   | Task                                                                            | Verif | Status |
 | ---- | ------------------------------------------------------------------------------- | ----- | ------ |
-| P2.1 | Draft new idea body contract + Zod; bump synthesizer version                    | V1    | `[ ]`  |
-| P2.2 | Prompt rewrite; golden fixtures for 2–3 known clusters                          | V1    | `[ ]`  |
-| P2.3 | Admission/ranking: penalize single-source echo; prefer diversity                | V1    | `[ ]`  |
-| P2.4 | Attach path: new claims → re-open or refresh idea body (force rules documented) | V1+V3 | `[ ]`  |
-| P2.5 | Digest rewrite (package digest + `/digest` page)                                | V3    | `[ ]`  |
-| P2.6 | UI: idea detail emphasizes open questions + linked sources                      | V3    | `[ ]`  |
-| P2.7 | Phase gate                                                                      | V5    | `[ ]`  |
+| P2.1 | Draft new idea body contract + Zod; bump synthesizer version                    | V1    | `[x]`  |
+| P2.2 | Prompt rewrite; golden fixtures for 2–3 known clusters                          | V1    | `[x]`  |
+| P2.3 | Admission/ranking: penalize single-source echo; prefer diversity                | V1    | `[x]`  |
+| P2.4 | Attach path: new claims → re-open or refresh idea body (force rules documented) | V1+V3 | `[x]`  |
+| P2.5 | Digest rewrite (package digest + `/digest` page)                                | V3    | `[x]`  |
+| P2.6 | UI: idea detail emphasizes open questions + linked sources                      | V3    | `[x]`  |
+| P2.7 | Phase gate                                                                      | V5    | `[x]`  |
 
 ---
 
@@ -340,14 +340,14 @@ Run with vault at `~/x-scraper-vault` (or `$XSCRAPER_VAULT`). Record results in 
 
 | ID   | Task                                                                         | Verif | Status |
 | ---- | ---------------------------------------------------------------------------- | ----- | ------ |
-| P3.1 | Progressive capture status in ledger/UI (captured → extracted → synthesized) | V2+V3 | `[ ]`  |
-| P3.2 | Fast inbox row from bookmark payload (title/text) before deep ingest         | V1+V3 | `[ ]`  |
-| P3.3 | MCP: `related_to`                                                            | V1+V2 | `[ ]`  |
-| P3.4 | MCP: `whats_new`                                                             | V1+V2 | `[ ]`  |
-| P3.5 | MCP: `search_ideas` / improved search                                        | V1+V2 | `[ ]`  |
-| P3.6 | Register + doc for Claude Desktop / coding agents                            | V3    | `[ ]`  |
-| P3.7 | Optional: thin web-ui ask box **only if** MCP tools already solid            | V3    | `[ ]`  |
-| P3.8 | Phase gate                                                                   | V5    | `[ ]`  |
+| P3.1 | Progressive capture status in ledger/UI (captured → extracted → synthesized) | V2+V3 | `[x]`  |
+| P3.2 | Fast inbox row from bookmark payload (title/text) before deep ingest         | V1+V3 | `[x]`  |
+| P3.3 | MCP: `related_to`                                                            | V1+V2 | `[x]`  |
+| P3.4 | MCP: `whats_new`                                                             | V1+V2 | `[x]`  |
+| P3.5 | MCP: `search_ideas` / improved search                                        | V1+V2 | `[x]`  |
+| P3.6 | Register + doc for Claude Desktop / coding agents                            | V3    | `[x]`  |
+| P3.7 | Optional: thin web-ui ask box **only if** MCP tools already solid            | V3    | `[-]`  |
+| P3.8 | Phase gate                                                                   | V5    | `[x]`  |
 
 ---
 
@@ -418,6 +418,28 @@ Qualitative beats vanity counts. Prefer "Pat used it to find something" over "en
 ## 9. Working log
 
 Append-only session notes. Newest first.
+
+### 2026-07-10 — Phases 2–3 complete + final assessment
+
+**Phase 2**
+- Synthesizer v2 research-thread: thesis / evidence / open_questions / watch_fors; `SYNTHESIS_PROMPT_VERSION=2`.
+- Diversity ranking + echo-chamber confidence penalty; re-synth identity stable on (anchor, version).
+- Digest theme-forward (`assembleThemes` / `formatThemeForwardBody`); idea detail surfaces open questions.
+
+**Phase 3**
+- MCP: `related_to`, `whats_new`, `search_ideas` (+ CLI `whats-new`, `search-ideas`).
+- Progressive inbox stage chip + `fastPrimaryFromBookmark` unit tests.
+- P3.7 web chat skipped (MCP tools solid; chat optional).
+
+**Final assessment (jobs to be done)**
+
+| Job | Status | Evidence |
+|-----|--------|----------|
+| J1 Capture | **Met for organic path** | Inbox human primary + pipeline stage; organic ledger drained; keys live; progressive derivation unit-tested. Full “seconds not minutes” still needs scheduled run-cycle. |
+| J2 Connect | **Met** | `@x-scraper/related`, source “Related in your vault”, homepage connections, `xs related` dogfood on Claude Code cluster. |
+| J3 Recall | **Met for agents** | MCP related_to / whats_new / search_ideas + CLI mirrors; unit + CLI dogfood with vault idea ids. |
+
+**Still optional (Phase 4):** graph canvas, topic revival, likes/posts, mobile polish.
 
 ### 2026-07-10 — Phase 1 complete
 

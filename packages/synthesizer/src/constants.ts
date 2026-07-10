@@ -7,7 +7,8 @@
  * the new prompt on the same clusters and produce parallel drafts.
  */
 
-export const SYNTHESIS_PROMPT_VERSION = 1;
+/** v2 = research-thread contract (thesis / evidence / open questions / watch-fors). */
+export const SYNTHESIS_PROMPT_VERSION = 2;
 
 /**
  * Cluster admission thresholds. The "interestingness" floor: an Idea
@@ -15,6 +16,13 @@ export const SYNTHESIS_PROMPT_VERSION = 1;
  */
 export const MIN_CLAIMS_PER_CLUSTER = 3;
 export const MIN_SOURCES_PER_CLUSTER = 2;
+/**
+ * Prefer clusters with this many distinct authors when author handles are known.
+ * Clusters below this still admit if they meet source thresholds, but rank lower.
+ */
+export const PREFERRED_AUTHORS_PER_CLUSTER = 2;
+/** Confidence haircut for 2-source / single-author echo clusters (0..1). */
+export const ECHO_CHAMBER_CONFIDENCE_PENALTY = 0.15;
 
 /** Default model + token budget for the synthesizer. Sonnet 4.6, generous. */
 export const DEFAULT_SYNTHESIS_MAX_TOKENS = 8_000;

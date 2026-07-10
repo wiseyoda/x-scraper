@@ -14,6 +14,7 @@ import type {
   IdeaFrontmatter,
   SourceFrontmatter,
 } from '@x-scraper/core';
+import { parseResearchThreadBody } from '@x-scraper/synthesizer';
 import type { VaultStore } from '@x-scraper/vault';
 
 import { getVault } from './vault';
@@ -70,6 +71,14 @@ export interface IdeaDetailData {
   /** The anchor entity (matched by name === idea.subject), or null. */
   anchor: IdeaAnchorEntity | null;
   related: IdeaRelatedIdea[];
+  /** Parsed research-thread sections when body uses v2 shape. */
+  research: {
+    thesis: string | null;
+    evidence: string[];
+    openQuestions: string[];
+    watchFors: string[];
+    caveat: string | null;
+  };
 }
 
 const safeRead = async (vault: VaultStore, id: string, type: EntityType) => {
@@ -111,6 +120,7 @@ export const loadIdeaDetail = async (id: string): Promise<IdeaDetailData | null>
     claims,
     anchor,
     related,
+    research: parseResearchThreadBody(record.body),
   };
 };
 

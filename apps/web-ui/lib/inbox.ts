@@ -21,6 +21,7 @@ import type {
 import { authorFromUrl, type AuthorRef } from './author';
 import { loadLedgerOverlay } from './bookmark-ledger';
 import { deriveInboxDisplay } from './inbox-display';
+import { derivePipelineStage } from './pipeline-status';
 import { pinnedIdSet } from './pins';
 import { allSourceState, type SourceState } from './source-state';
 import { getVault } from './vault';
@@ -80,6 +81,11 @@ export interface InboxRow {
   claimCount: number;
   /** Number of entities mentioned in this source. */
   entityCount: number;
+  /**
+   * Progressive pipeline stage for UI chips (captured → extracted → synthesized).
+   * Derived without network from ledger + claim/idea counts.
+   */
+  pipelineStage: 'captured' | 'extracted' | 'synthesized' | 'synced' | 'failed' | 'unknown';
 }
 
 export interface InboxFilter {
@@ -230,6 +236,13 @@ export const loadInbox = async (filter: InboxFilter = {}): Promise<InboxResult> 
           kind,
           claimCount: claimsBySource.get(fm.id) ?? 0,
           entityCount: entitiesBySource.get(fm.id) ?? 0,
+          pipelineStage: derivePipelineStage({
+            // Ledger overlay is organic/derived only; vault source existence
+            // implies capture. Claims/ideas advance the progressive chip.
+            ledgerStatus: 'synced',
+            claimCount: claimsBySource.get(fm.id) ?? 0,
+            ideaCount: 0,
+          }),
         } satisfies InboxRow;
       } catch {
         return null;

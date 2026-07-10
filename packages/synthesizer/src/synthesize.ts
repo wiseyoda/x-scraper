@@ -7,8 +7,14 @@
 
 import type { LlmProvider } from '@x-scraper/llm';
 
-import { DEFAULT_SYNTHESIS_MAX_TOKENS, SYNTHESIS_PROMPT_VERSION } from './constants.js';
-import { SYNTHESIS_REPAIR_HINT_V1, SYNTHESIS_SYSTEM_V1 } from './prompts.js';
+import { formatResearchThreadBody } from './body-format.js';
+import {
+  DEFAULT_SYNTHESIS_MAX_TOKENS,
+  ECHO_CHAMBER_CONFIDENCE_PENALTY,
+  SYNTHESIS_PROMPT_VERSION,
+} from './constants.js';
+import { isEchoChamberCluster } from './diversity.js';
+import { SYNTHESIS_REPAIR_HINT_V2, SYNTHESIS_SYSTEM_V2 } from './prompts.js';
 import { IdeaDraftSchema, type IdeaDraftValidated } from './schemas.js';
 import type { ClaimCluster, IdeaDraft } from './types.js';
 
@@ -96,12 +102,12 @@ export const synthesizeCluster = async (
       { role: 'user', content: userContent },
     ];
     if (attempt > 0) {
-      messages.push({ role: 'user', content: SYNTHESIS_REPAIR_HINT_V1(lastError) });
+      messages.push({ role: 'user', content: SYNTHESIS_REPAIR_HINT_V2(lastError) });
     }
     const reply = await llm.complete({
       ...(input.model === undefined ? {} : { model: input.model }),
       maxTokens: input.maxTokens ?? DEFAULT_SYNTHESIS_MAX_TOKENS,
-      system: [{ text: SYNTHESIS_SYSTEM_V1 }],
+      system: [{ text: SYNTHESIS_SYSTEM_V2 }],
       messages,
     });
     totalCost += reply.costUsd;
@@ -118,11 +124,28 @@ export const synthesizeCluster = async (
     const result = IdeaDraftSchema.safeParse(parsed);
     if (result.success) {
       const validated: IdeaDraftValidated = result.data;
+      let confidence = validated.confidence;
+      if (isEchoChamberCluster(input.cluster)) {
+        confidence = Math.max(0, confidence - ECHO_CHAMBER_CONFIDENCE_PENALTY);
+      }
+      const body = formatResearchThreadBody({
+        title: validated.title,
+        thesis: validated.thesis,
+        evidence: validated.evidence,
+        openQuestions: validated.open_questions,
+        watchFors: validated.watch_fors,
+        confidence,
+        caveat: validated.caveat,
+      });
       return {
         draft: {
           title: validated.title,
-          body: validated.body,
-          confidence: validated.confidence,
+          body,
+          thesis: validated.thesis,
+          evidence: validated.evidence,
+          openQuestions: validated.open_questions,
+          watchFors: validated.watch_fors,
+          confidence,
           caveat: validated.caveat,
         },
         meta: {

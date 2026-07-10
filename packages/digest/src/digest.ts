@@ -11,6 +11,7 @@ import type { LlmProvider } from '@x-scraper/llm';
 import type { VaultListEntry, VaultStore } from '@x-scraper/vault';
 
 import { formatIsoWeek } from './iso-week.js';
+import { assembleThemes, formatThemeForwardBody, type IdeaThemeInput } from './themes.js';
 
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1_000;
 const SUMMARY_MAX_TOKENS = 4_000;
@@ -18,12 +19,13 @@ const SUMMARY_MAX_TOKENS = 4_000;
 const PROMPT_BUDGET_CHARS = 24_000;
 const PER_RECORD_BUDGET_CHARS = 800;
 
-const DIGEST_SYSTEM = `You write a Monday-morning briefing on a knowledge graph.
-Given a list of newly-ingested sources and claims from the past week,
-write a 200-400-word markdown summary highlighting:
-  - the most important new claims, grouped by topic
-  - any contradictions worth investigating
-  - a one-line "what to read first" pointer
+const DIGEST_SYSTEM = `You write a theme-forward personal research briefing for someone who bookmarks technical posts on X.
+Given themes (ideas), sources, and claims from the past week, write 200-400 words of markdown that:
+  - opens with 3-7 named themes (use idea subjects) and why they matter
+  - links each theme to idea ids and source ids when provided (use backticks like \`idea_abc\`)
+  - notes open tensions or contradictions
+  - ends with a one-line "what to read first"
+Do NOT only list counts. Prefer narrative themes over tallies.
 Use plain markdown. No fences. No preamble.`;
 
 export interface BuildDigestInput {
@@ -52,20 +54,6 @@ const DEFAULT_PREVIEW_CHARS = 200;
 
 const clamp = (s: string, max: number): string =>
   s.length > max ? `${s.slice(0, max).trim()}…` : s;
-
-const formatDeterministicBody = (
-  weekLabel: string,
-  sources: VaultListEntry[],
-  claims: VaultListEntry[],
-): string => {
-  const lines: string[] = [`# Digest ${weekLabel}`, ''];
-  lines.push(`**Sources** (${String(sources.length)}):`, '');
-  for (const s of sources) lines.push(`- \`${s.id}\` — ${s.relativePath}`);
-  lines.push('', `**Claims** (${String(claims.length)}):`, '');
-  for (const c of claims) lines.push(`- \`${c.id}\` — ${c.relativePath}`);
-  lines.push('');
-  return lines.join('\n');
-};
 
 interface RecordPreview {
   id: string;
@@ -109,8 +97,9 @@ const summarizeViaLlm = async (
   weekLabel: string,
   sources: RecordPreview[],
   claims: RecordPreview[],
+  themeLines: string,
 ): Promise<string> => {
-  const lines: string[] = [`Week: ${weekLabel}`, ''];
+  const lines: string[] = [`Week: ${weekLabel}`, '', 'Themes:', themeLines, ''];
   lines.push(`Sources (${String(sources.length)}):`);
   for (const s of sources) {
     lines.push(`- [${s.id}]`);
@@ -142,14 +131,53 @@ export const buildDigest = async (
   const start = new Date(input.now.getTime() - ONE_WEEK_MS);
   const sources = (await vault.list('Source')).filter((e) => e.mtime >= start);
   const claims = (await vault.list('Claim')).filter((e) => e.mtime >= start);
+  const recentSourceIds = new Set(sources.map((s) => s.id));
+  const ideaEntries = await vault.list('Idea').catch(() => [] as VaultListEntry[]);
+  const ideaInputs: IdeaThemeInput[] = [];
+  const recentIdeaIds = new Set<string>();
+  for (const e of ideaEntries) {
+    try {
+      const rec = await vault.read(e.id, 'Idea');
+      if (rec.frontmatter.type !== 'Idea') continue;
+      const fm = rec.frontmatter;
+      ideaInputs.push({
+        id: fm.id,
+        subject: fm.subject,
+        status: fm.status,
+        sourceIds: fm.sources,
+        updatedAt: fm.updated_at,
+      });
+      if (e.mtime >= start) recentIdeaIds.add(fm.id);
+    } catch {
+      /* skip */
+    }
+  }
+  const themes = assembleThemes(ideaInputs, recentSourceIds, recentIdeaIds);
   const weekLabel = formatIsoWeek(input.now);
   let body: string;
   if (input.llm === undefined) {
-    body = formatDeterministicBody(weekLabel, sources, claims);
+    body = formatThemeForwardBody(
+      weekLabel,
+      themes,
+      sources.map((s) => s.id),
+      claims.map((c) => c.id),
+    );
   } else {
     const sourcePreviews = await readPreviews(vault, sources);
     const claimPreviews = await readPreviews(vault, claims);
-    body = await summarizeViaLlm(input.llm, weekLabel, sourcePreviews, claimPreviews);
+    const themeLines = themes
+      .map(
+        (t) =>
+          `- Theme "${t.subject}" idea=${t.ideaId} status=${t.status} sources_this_window=${t.linkedSourceIds.join(',') || 'none'}`,
+      )
+      .join('\n');
+    body = await summarizeViaLlm(
+      input.llm,
+      weekLabel,
+      sourcePreviews,
+      claimPreviews,
+      themeLines,
+    );
   }
   return {
     weekLabel,

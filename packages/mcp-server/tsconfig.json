@@ -8,5 +8,10 @@
   },
   "include": ["src/**/*.ts"],
   "exclude": ["dist", "node_modules", "**/*.test.ts"],
-  "references": [{ "path": "../core" }, { "path": "../queue" }, { "path": "../vault" }]
+  "references": [
+    { "path": "../core" },
+    { "path": "../queue" },
+    { "path": "../related" },
+    { "path": "../vault" }
+  ]
 }

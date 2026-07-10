@@ -439,6 +439,9 @@ importers:
       '@x-scraper/queue':
         specifier: workspace:*
         version: link:../queue
+      '@x-scraper/related':
+        specifier: workspace:*
+        version: link:../related
       '@x-scraper/vault':
         specifier: workspace:*
         version: link:../vault

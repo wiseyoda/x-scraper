@@ -4,6 +4,7 @@
  */
 
 import { ENTITY_TYPES, type EntityType } from '@x-scraper/core';
+import { attachmentsSince, related } from '@x-scraper/related';
 
 import {
   type SearchHit,
@@ -84,3 +85,99 @@ export const getStatus = (ctx: ServerContext): StatusReport => {
 
 export const summarizeHit = (body: string): string =>
   body.length > MATCH_PREVIEW_CHARS ? `${body.slice(0, MATCH_PREVIEW_CHARS).trim()}…` : body;
+
+export interface RelatedToInput {
+  id: string;
+  limit?: number;
+}
+
+/** Rank related vault nodes — shared @x-scraper/related engine. */
+export const relatedTo = async (ctx: ServerContext, input: RelatedToInput) => {
+  if (input.id.trim().length === 0) {
+    throw new ToolError('id is required', 'INVALID_INPUT');
+  }
+  const result = await related(
+    { vault: ctx.vault, graph: null },
+    { id: input.id, ...(input.limit === undefined ? {} : { limit: input.limit }) },
+  );
+  return {
+    id: result.id,
+    mode: result.mode,
+    hits: result.hits.map((h) => ({
+      targetId: h.targetId,
+      targetKind: h.targetKind,
+      reason: h.reason,
+      score: h.score,
+      evidenceIds: h.evidenceIds,
+    })),
+  };
+};
+
+export interface WhatsNewInput {
+  /** ISO timestamp; default last 7 days. */
+  since?: string;
+  limit?: number;
+}
+
+/** Attachment events + recent sources/ideas since a cutoff. */
+export const whatsNew = async (ctx: ServerContext, input: WhatsNewInput = {}) => {
+  const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+  const since =
+    input.since !== undefined && input.since.length > 0
+      ? input.since
+      : new Date(Date.now() - SEVEN_DAYS_MS).toISOString();
+  const limit = Math.max(1, Math.min(input.limit ?? 25, MAX_HITS_CEILING));
+  const events = await attachmentsSince(
+    { vault: ctx.vault, graph: null },
+    since,
+    { sourceLimit: limit, relatedLimit: 4 },
+  );
+  const ideaHits = await searchVault(ctx, { type: 'Idea', limit });
+  const recentIdeas = ideaHits.filter((h) => Date.parse(h.mtime) >= Date.parse(since));
+  return {
+    since,
+    attachments: events.slice(0, limit),
+    recentIdeas: recentIdeas.slice(0, limit),
+  };
+};
+
+export interface SearchIdeasInput {
+  query?: string;
+  limit?: number;
+  status?: 'draft' | 'confirmed' | 'rejected';
+}
+
+/** Search Idea records by id/subject/body substring. */
+export const searchIdeas = async (ctx: ServerContext, input: SearchIdeasInput = {}) => {
+  const limit = Math.max(1, Math.min(input.limit ?? MAX_HITS_DEFAULT, MAX_HITS_CEILING));
+  const entries = await ctx.vault.list('Idea');
+  const q = input.query?.toLowerCase().trim() ?? '';
+  const hits: {
+    id: string;
+    subject: string;
+    status: string;
+    sourceCount: number;
+    snippet: string | null;
+  }[] = [];
+  for (const e of entries) {
+    if (hits.length >= limit) break;
+    try {
+      const rec = await ctx.vault.read(e.id, 'Idea');
+      if (rec.frontmatter.type !== 'Idea') continue;
+      const fm = rec.frontmatter;
+      if (input.status !== undefined && fm.status !== input.status) continue;
+      const hay = `${fm.id} ${fm.subject} ${rec.body}`.toLowerCase();
+      if (q.length > 0 && !hay.includes(q)) continue;
+      hits.push({
+        id: fm.id,
+        subject: fm.subject,
+        status: fm.status,
+        sourceCount: fm.sources.length,
+        snippet: summarizeHit(rec.body.replace(/^#.*\n+/, '').trim()),
+      });
+    } catch {
+      /* skip */
+    }
+  }
+  return { hits };
+};

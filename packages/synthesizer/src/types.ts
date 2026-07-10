@@ -17,6 +17,8 @@ export interface ClaimRef {
   confidence: number;
   /** First (and currently only) source the claim came from. */
   sourceId: string;
+  /** Optional author handle for diversity scoring (from source URL/byline). */
+  authorHandle?: string;
 }
 
 /**
@@ -63,12 +65,18 @@ export interface ClaimCluster {
 
 /**
  * The LLM-synthesized output for one cluster, before persistence.
+ * body is always the formatted research-thread markdown (v2).
  */
 export interface IdeaDraft {
   /** Short title (≤120 chars). */
   title: string;
-  /** Synthesized 1-3 paragraph body summarizing what the cluster expresses. */
+  /** Formatted research-thread markdown (thesis / evidence / open questions / watch-fors). */
   body: string;
+  /** Thesis sentence(s) — also embedded in body. */
+  thesis: string;
+  evidence: string[];
+  openQuestions: string[];
+  watchFors: string[];
   /** Confidence the synthesizer has in cross-source agreement (0..1). */
   confidence: number;
   /** Optional warning about disagreement / open question among the claims. */

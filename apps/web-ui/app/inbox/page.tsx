@@ -13,6 +13,7 @@ import {
   type InboxFilter,
   type InboxRow,
 } from '@/lib/inbox';
+import { PIPELINE_STAGE_LABEL } from '@/lib/pipeline-status';
 import { allTags } from '@/lib/source-state';
 
 export const dynamic = 'force-dynamic';
@@ -96,6 +97,12 @@ const InboxRowCard = ({ row }: { row: InboxRow }): React.JSX.Element => (
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
           {row.contentType}
+        </span>
+        <span
+          className="rounded bg-zinc-800/80 px-1.5 py-0.5 text-[10px] text-zinc-500"
+          title="pipeline stage"
+        >
+          {PIPELINE_STAGE_LABEL[row.pipelineStage]}
         </span>
         {row.author !== null ? (
           <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-[11px] text-sky-300 ring-1 ring-inset ring-sky-500/30">

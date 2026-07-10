@@ -87,6 +87,45 @@ export default async function IdeaDetailPage({ params }: { params: Promise<{ id:
 
       <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-[1fr_320px]">
         <div className="min-w-0">
+          {detail.research.openQuestions.length > 0 || detail.research.thesis !== null ? (
+            <section className="mb-8 rounded-lg border border-sky-500/20 bg-sky-500/[0.04] p-5">
+              {detail.research.thesis !== null ? (
+                <div className="mb-4">
+                  <h2 className="text-xs font-semibold uppercase tracking-wider text-sky-400">
+                    Thesis
+                  </h2>
+                  <p className="mt-2 text-sm leading-relaxed text-zinc-200">
+                    {detail.research.thesis}
+                  </p>
+                </div>
+              ) : null}
+              {detail.research.openQuestions.length > 0 ? (
+                <div>
+                  <h2 className="text-xs font-semibold uppercase tracking-wider text-sky-400">
+                    Open questions
+                  </h2>
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-zinc-300">
+                    {detail.research.openQuestions.map((q) => (
+                      <li key={q}>{q}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {detail.research.watchFors.length > 0 ? (
+                <div className="mt-4">
+                  <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                    Watch for
+                  </h2>
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-zinc-400">
+                    {detail.research.watchFors.map((w) => (
+                      <li key={w}>{w}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+
           <article>
             <Markdown body={stripDerivedFrom(detail.body)} />
           </article>
