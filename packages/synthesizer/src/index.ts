@@ -1,6 +1,8 @@
 export type { ClusterClaimsOptions } from './cluster.js';
 export { clusterByEntity, clusterClaims, normalizeAnchor } from './cluster.js';
 export {
+  AUTO_CONFIRM_CONFIDENCE,
+  AUTO_CONFIRM_SOURCES,
   DEFAULT_SYNTHESIS_MAX_TOKENS,
   MAX_IDEA_BODY_CHARS,
   MIN_CLAIMS_PER_CLUSTER,

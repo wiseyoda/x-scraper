@@ -20,6 +20,8 @@ import type { VaultStore } from '@x-scraper/vault';
 export interface IdeaListEntry {
   id: string;
   status: 'draft' | 'confirmed' | 'rejected';
+  /** True when status was set by auto-confirm rather than a human. */
+  autoConfirmed: boolean;
   subject: string;
   confidence: number;
   sourceCount: number;
@@ -63,6 +65,7 @@ export const runIdeasList = async (
     entries.push({
       id: fm.id,
       status: fm.status,
+      autoConfirmed: fm.auto_confirmed,
       subject: fm.subject,
       confidence: fm.synthesizer_confidence,
       sourceCount: fm.sources.length,

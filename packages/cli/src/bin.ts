@@ -26,6 +26,7 @@ import { MCP_CLIENTS, type McpClient, runMcpRegister } from './commands/mcp-regi
 import { runRefine } from './commands/refine.js';
 import { runReindex } from './commands/reindex.js';
 import { runReview } from './commands/review.js';
+import { runCycle } from './commands/run-cycle.js';
 import {
   runScheduleInstall,
   runScheduleUninstall,
@@ -82,11 +83,16 @@ Commands:
        [--synthesize]                Use Sonnet to title each topic (billed)
        [--min-size=N]                Drop communities smaller than N (default 5)
        [--dry-run]                   Skip vault + graph writes
+  run-cycle                         Autonomous tick: bookmarks pull → sync → ideas synthesize
+       [--pull-max=N]               Default: 200
+       [--sync-limit=N]             Default: 64
+       [--sync-order=oldest|newest] Default: oldest
+       [--skip-pull] [--skip-synthesize]
   schedule install                  Install a launchd plist that runs xs on a schedule
-       [--mode=bookmarks-sync|sync] Default: bookmarks-sync
+       [--mode=run-cycle|bookmarks-sync] Default: run-cycle
        [--interval=SECONDS]         Default: 3600 (1h)
   schedule uninstall                Remove the launchd plist + bootout the agent
-       [--mode=bookmarks-sync|sync]
+       [--mode=run-cycle|bookmarks-sync]
   review                            List entity records that need human triage
   help                              Show this message
 
@@ -279,11 +285,11 @@ const runMain = async (): Promise<number> => {
         );
         return EXIT_USAGE;
       }
-      const modeArg = args.options.get('mode') ?? 'bookmarks-sync';
-      if (modeArg !== 'bookmarks-sync') {
+      const modeArg = args.options.get('mode') ?? 'run-cycle';
+      if (modeArg !== 'run-cycle' && modeArg !== 'bookmarks-sync') {
         // 'sync' was removed: a static plist can't supply the required
         // --urls argument, so it would fail on every interval. (Codex P2.)
-        console.error(`xs schedule: --mode must be bookmarks-sync (got ${modeArg})`);
+        console.error(`xs schedule: --mode must be run-cycle|bookmarks-sync (got ${modeArg})`);
         return EXIT_USAGE;
       }
       const mode: ScheduleMode = modeArg;
@@ -303,6 +309,44 @@ const runMain = async (): Promise<number> => {
         `schedule uninstall (${result.label}): ${result.removed ? 'removed' : 'no plist found at'} ${result.plistPath}`,
       );
       return EXIT_OK;
+    }
+    case 'run-cycle': {
+      const pullMaxStr = args.options.get('pull-max');
+      const syncLimitStr = args.options.get('sync-limit');
+      const syncOrderArg = args.options.get('sync-order');
+      if (syncOrderArg !== undefined && syncOrderArg !== 'oldest' && syncOrderArg !== 'newest') {
+        console.error(`xs run-cycle: --sync-order must be oldest|newest (got ${syncOrderArg})`);
+        return EXIT_USAGE;
+      }
+      const result = await runCycle(config, {
+        ...(pullMaxStr === undefined ? {} : { pullMax: Number(pullMaxStr) }),
+        ...(syncLimitStr === undefined ? {} : { syncLimit: Number(syncLimitStr) }),
+        ...(syncOrderArg === undefined ? {} : { syncOrder: syncOrderArg }),
+        ...(args.flags.has('skip-pull') ? { skipPull: true } : {}),
+        ...(args.flags.has('skip-synthesize') ? { skipSynthesize: true } : {}),
+      });
+      const pullSummary =
+        result.pull !== null
+          ? `pull=fetched:${String(result.pull.fetched)} new:${String(result.pull.inserted)}`
+          : result.pullError !== null
+            ? `pull=ERROR(${result.pullError})`
+            : 'pull=skipped';
+      const syncSummary =
+        result.sync !== null
+          ? `sync=ok:${String(result.sync.succeeded)} fail:${String(result.sync.failed)} cost=$${result.sync.totalCostUsd.toFixed(4)}`
+          : result.syncError !== null
+            ? `sync=ERROR(${result.syncError})`
+            : 'sync=skipped';
+      const synthSummary =
+        result.synthesis !== null
+          ? `synth=written:${String(result.synthesis.ideaIdsWritten.length)} auto:${String(result.synthesis.autoConfirmed)} cost=$${result.synthesis.costUsd.toFixed(4)}`
+          : result.synthesisError !== null
+            ? `synth=ERROR(${result.synthesisError})`
+            : 'synth=skipped';
+      console.log(`run-cycle: ${pullSummary} | ${syncSummary} | ${synthSummary}`);
+      const anyError =
+        result.pullError !== null || result.syncError !== null || result.synthesisError !== null;
+      return anyError ? EXIT_FAIL : EXIT_OK;
     }
     case 'ideas': {
       const sub = args.positionals[0];
@@ -338,7 +382,7 @@ const runMain = async (): Promise<number> => {
             ...(args.flags.has('force') ? { force: true } : {}),
           });
           console.log(
-            `ideas synthesize: written=${String(result.ideaIdsWritten.length)} skippedExisting=${String(result.skippedExisting)} belowThreshold=${String(result.belowThreshold)} cost=$${result.costUsd.toFixed(4)}`,
+            `ideas synthesize: written=${String(result.ideaIdsWritten.length)} autoConfirmed=${String(result.autoConfirmed)} skippedExisting=${String(result.skippedExisting)} belowThreshold=${String(result.belowThreshold)} cost=$${result.costUsd.toFixed(4)}`,
           );
           return EXIT_OK;
         } finally {
@@ -365,8 +409,9 @@ const runMain = async (): Promise<number> => {
         }
         console.log(`ideas list (status=${status}): ${String(entries.length)} entries`);
         for (const e of entries) {
+          const decidedBy = e.autoConfirmed ? 'auto' : 'manual';
           console.log(
-            `  ${e.id.padEnd(20)} ${e.status.padEnd(10)} conf=${e.confidence.toFixed(2)} src=${String(e.sourceCount).padStart(2)} claims=${String(e.derivedFromCount).padStart(2)}  ${e.subject}`,
+            `  ${e.id.padEnd(20)} ${e.status.padEnd(10)} ${decidedBy.padEnd(7)} conf=${e.confidence.toFixed(2)} src=${String(e.sourceCount).padStart(2)} claims=${String(e.derivedFromCount).padStart(2)}  ${e.subject}`,
           );
         }
         return EXIT_OK;

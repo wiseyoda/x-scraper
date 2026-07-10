@@ -17,10 +17,13 @@ import { buildLaunchdPlist, defaultPlistPath } from '@x-scraper/digest';
 
 const execFileAsync = promisify(execFile);
 
-// Only `bookmarks-sync` is schedulable today: `xs sync` requires `--urls=...`
-// to be passed at invocation time, which a static plist can't provide.
+// `run-cycle` is the default — autonomous tick (pull → sync → synthesize)
+// designed for unattended operation. `bookmarks-sync` remains for users
+// who only want to drain an existing ledger without pulling new bookmarks
+// or running synthesis. `xs sync` is NOT schedulable: it requires
+// --urls=... at invocation time, which a static plist can't provide.
 // (Codex P2: a sync-mode plist would fail on every interval.)
-export type ScheduleMode = 'bookmarks-sync';
+export type ScheduleMode = 'run-cycle' | 'bookmarks-sync';
 
 export interface ScheduleInstallOptions {
   /** Which command to schedule. Default: bookmarks-sync. */
@@ -59,13 +62,14 @@ const resolveBinPath = (): string => {
 };
 
 const COMMAND_BY_MODE: Record<ScheduleMode, string[]> = {
+  'run-cycle': ['run-cycle'],
   'bookmarks-sync': ['bookmarks', 'sync'],
 };
 
 export const runScheduleInstall = async (
   options: ScheduleInstallOptions = {},
 ): Promise<ScheduleInstallResult> => {
-  const mode = options.mode ?? 'bookmarks-sync';
+  const mode = options.mode ?? 'run-cycle';
   const intervalSeconds = options.intervalSeconds ?? DEFAULT_INTERVAL_SECONDS;
   const label = options.label ?? `com.x-scraper.${mode}`;
   const binPath = options.binPath ?? resolveBinPath();
@@ -122,7 +126,7 @@ export interface ScheduleUninstallResult {
 export const runScheduleUninstall = async (
   options: ScheduleUninstallOptions = {},
 ): Promise<ScheduleUninstallResult> => {
-  const mode = options.mode ?? 'bookmarks-sync';
+  const mode = options.mode ?? 'run-cycle';
   const label = options.label ?? `com.x-scraper.${mode}`;
   const plistPath = defaultPlistPath(label);
   const uid = process.getuid?.() ?? 0;

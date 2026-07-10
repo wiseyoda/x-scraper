@@ -106,6 +106,13 @@ export const IdeaFrontmatterSchema = z.object({
   derived_from: z.array(z.string()).default([]),
   /** Optional manual override of the LLM-generated body. */
   edited_body: z.boolean().default(false),
+  /**
+   * True when status was last set by the synthesizer's auto-confirm
+   * threshold rather than a human. Distinguishes machine decisions
+   * (eligible for re-evaluation when evidence shifts) from manual
+   * confirms/rejects (sticky).
+   */
+  auto_confirmed: z.boolean().default(false),
 });
 export type IdeaFrontmatter = z.infer<typeof IdeaFrontmatterSchema>;
 

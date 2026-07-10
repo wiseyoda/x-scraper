@@ -21,3 +21,23 @@ export const DEFAULT_SYNTHESIS_MAX_TOKENS = 8_000;
 
 /** Idea body cap — clamps pathological LLM outputs. */
 export const MAX_IDEA_BODY_CHARS = 8_000;
+
+/**
+ * Auto-confirm thresholds. When a synthesized cluster crosses BOTH
+ * bars (broad evidence AND no LLM-flagged conflict), the Idea is
+ * persisted as `confirmed` with `auto_confirmed: true`. Manual confirms
+ * and rejects always win (see persistIdea for the precedence rules).
+ *
+ * Bars chosen against the live corpus distribution: the synthesizer's
+ * confidence scores stay around 0.70–0.82 for broadly-evidenced clusters
+ * (the LLM appropriately gets more conservative when harmonizing across
+ * many sources), while single-narrative 2-source clusters land at
+ * 0.92–0.97. Source count IS the cross-source signal; confidence is a
+ * conflict floor, not a strength signal.
+ *
+ * ≥10 sources catches patterns that span genuinely multiple bookmarks
+ * rather than echo-chamber-of-one. ≥0.70 rules out anything the LLM
+ * flagged active disagreement on. Tune if the auto pile drifts noisy.
+ */
+export const AUTO_CONFIRM_CONFIDENCE = 0.7;
+export const AUTO_CONFIRM_SOURCES = 10;

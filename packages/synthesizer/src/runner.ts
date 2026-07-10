@@ -121,6 +121,7 @@ export const synthesizeAll = async (input: SynthesizeAllInput): Promise<Synthesi
   let cap = input.limit ?? admitted.length;
   let costUsd = 0;
   let skippedExisting = 0;
+  let autoConfirmed = 0;
   const ideaIdsWritten: string[] = [];
 
   for (const cluster of admitted) {
@@ -158,12 +159,15 @@ export const synthesizeAll = async (input: SynthesizeAllInput): Promise<Synthesi
       ...(input.now === undefined ? {} : { now: input.now }),
     });
     ideaIdsWritten.push(persisted.id);
+    if (persisted.autoConfirmed) autoConfirmed += 1;
     log.info('synthesize.idea_written', {
       id: persisted.id,
       anchor: cluster.anchor,
       claims: cluster.claims.length,
       sources: cluster.sourceIds.length,
       confidence: result.draft.confidence,
+      status: persisted.status,
+      autoConfirmed: persisted.autoConfirmed,
       costUsd: result.meta.costUsd,
     });
     cap -= 1;
@@ -171,6 +175,7 @@ export const synthesizeAll = async (input: SynthesizeAllInput): Promise<Synthesi
 
   log.info('synthesize.finished', {
     written: ideaIdsWritten.length,
+    autoConfirmed,
     skippedExisting,
     belowThreshold,
     costUsd,
@@ -178,6 +183,7 @@ export const synthesizeAll = async (input: SynthesizeAllInput): Promise<Synthesi
 
   return {
     ideaIdsWritten,
+    autoConfirmed,
     skippedExisting,
     belowThreshold,
     costUsd,

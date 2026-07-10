@@ -78,6 +78,8 @@ export interface IdeaDraft {
 export interface SynthesisResult {
   /** Idea ids written this run. */
   ideaIdsWritten: string[];
+  /** Of those written, how many landed at status='confirmed' via auto-confirm. */
+  autoConfirmed: number;
   /** Clusters skipped because an Idea already exists. */
   skippedExisting: number;
   /** Clusters that didn't pass the admission thresholds. */

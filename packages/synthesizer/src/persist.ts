@@ -1,17 +1,31 @@
 /**
  * Persist a synthesized IdeaDraft to the vault and graph.
  *
- * Idempotent on (anchor, sources, prompt_version): the Idea id is
- * derived from those, so re-running synthesize over the same cluster
- * with the same prompt version produces the same id. Existing drafts
- * are preserved (status / edited_body / created_at all carry forward).
+ * Idempotent on (anchor, prompt_version): the Idea id is derived from
+ * those, so re-running synthesize over the same cluster with the same
+ * prompt version produces the same id. created_at and edited_body
+ * always carry forward.
+ *
+ * Status policy:
+ *   - Manual confirm/reject is sticky: if the existing record has a
+ *     non-draft status AND was NOT auto-confirmed by us, we preserve it.
+ *   - Otherwise (new record, was auto-confirmed by us, or still a
+ *     draft), status is recomputed from current evidence. Crossing the
+ *     auto-confirm bar (≥ AUTO_CONFIRM_SOURCES sources AND
+ *     ≥ AUTO_CONFIRM_CONFIDENCE confidence) sets status='confirmed' with
+ *     auto_confirmed=true. Falling back below the bar downgrades a
+ *     prior auto-confirm to 'draft'.
  */
 
 import { entityId, type Frontmatter, type IdeaFrontmatter } from '@x-scraper/core';
 import type { GraphStore } from '@x-scraper/graph';
 import type { VaultStore } from '@x-scraper/vault';
 
-import { SYNTHESIS_PROMPT_VERSION } from './constants.js';
+import {
+  AUTO_CONFIRM_CONFIDENCE,
+  AUTO_CONFIRM_SOURCES,
+  SYNTHESIS_PROMPT_VERSION,
+} from './constants.js';
 import type { ClaimCluster, IdeaDraft } from './types.js';
 
 const PROMPT_VERSION_DEFAULT = {
@@ -48,6 +62,10 @@ export interface PersistedIdea {
   vaultPath: string;
   /** True when the Idea didn't exist before this call. */
   created: boolean;
+  /** Final status written to disk. */
+  status: 'draft' | 'confirmed' | 'rejected';
+  /** True when the synthesizer set status (vs preserving a manual decision). */
+  autoConfirmed: boolean;
 }
 
 const buildIdeaBody = (cluster: ClaimCluster, draft: IdeaDraft): string => {
@@ -76,9 +94,17 @@ export const persistIdea = async (
   const now = (input.now ?? ((): Date => new Date()))().toISOString();
   const ideaId = ideaIdForCluster(input.cluster, SYNTHESIS_PROMPT_VERSION);
 
-  // Preserve workflow state across re-syntheses.
+  // Auto-confirm bar: broad evidence AND strong synthesizer agreement.
+  // Single-source-narrative clusters (high conf, low source count) stay
+  // in the manual queue.
+  const sourceCount = input.cluster.sourceIds.length;
+  const meetsAutoBar =
+    input.draft.confidence >= AUTO_CONFIRM_CONFIDENCE && sourceCount >= AUTO_CONFIRM_SOURCES;
+
+  // Defaults for a new record: auto-confirm if it crosses the bar.
   let createdAt = now;
-  let status: 'draft' | 'confirmed' | 'rejected' = 'draft';
+  let status: 'draft' | 'confirmed' | 'rejected' = meetsAutoBar ? 'confirmed' : 'draft';
+  let autoConfirmed = meetsAutoBar;
   let editedBody = false;
   let bodyToWrite = buildIdeaBody(input.cluster, input.draft);
   try {
@@ -86,11 +112,23 @@ export const persistIdea = async (
     if (existing.frontmatter.type === 'Idea') {
       const fm: IdeaFrontmatter = existing.frontmatter;
       createdAt = fm.created_at;
-      status = fm.status;
       editedBody = fm.edited_body;
       // If the user has manually edited the body, never overwrite it on
       // re-synthesis. They can opt back in by resetting edited_body.
       if (editedBody) bodyToWrite = existing.body;
+
+      // Manual confirm/reject is sticky. We treat status as user-touched
+      // when the existing record is non-draft and was NOT auto-confirmed
+      // by us — that combination means a human ran `xs ideas confirm` /
+      // `reject` (or the web-ui equivalent).
+      const userTouched = !fm.auto_confirmed && fm.status !== 'draft';
+      if (userTouched) {
+        status = fm.status;
+        autoConfirmed = fm.auto_confirmed;
+      }
+      // Otherwise (was auto-confirmed by us, or still a draft), recompute
+      // from current evidence — which may upgrade a stale draft OR
+      // downgrade an auto-confirm whose evidence weakened.
     }
   } catch {
     // First write — leave defaults.
@@ -116,6 +154,7 @@ export const persistIdea = async (
     synthesized_at: now,
     derived_from: input.cluster.claims.map((c) => c.id),
     edited_body: editedBody,
+    auto_confirmed: autoConfirmed,
   };
 
   const frontmatter: Frontmatter = fm;
@@ -161,5 +200,11 @@ export const persistIdea = async (
     }
   }
 
-  return { id: ideaId, vaultPath: path, created: createdAt === now };
+  return {
+    id: ideaId,
+    vaultPath: path,
+    created: createdAt === now,
+    status,
+    autoConfirmed,
+  };
 };
