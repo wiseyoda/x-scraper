@@ -28,11 +28,16 @@ packages/
   observability/  pino-compatible NDJSON logger + perf timers
   community/      Louvain detector over the Concept subgraph
 apps/
-  web-ui/         NEW. Next.js 15 + Tailwind 4 review surface (port 3737, /ideas).
+  web-ui/         Next.js 15 + Tailwind 4 + React 19 dashboard (port 3737).
+                  Routes: / · /inbox · /pinned · /ideas[/...] · /sources/[id] ·
+                  /entities/[id] · /authors/[handle] · /digest. Sticky header
+                  with search (`/` shortcut), Inbox+unread, Pinned, Ideas, Digest,
+                  Sync. Personal user state at <vault>/.xscraper/ (pins.json,
+                  source-state.json, sync-runs/, briefs/) — not in git.
 docs/             ARCHITECTURE, ROADMAP, SPIKES, CODING_STANDARDS, CODEX_REVIEW, web-ui/
 ```
 
-Read `HANDOFF.md` first.
+Read `HANDOFF.md` first. Active product work is tracked in `docs/PRODUCT_PLAN.md` — open it every session, execute the next task, update status/verification before ending.
 
 ## Commands
 
@@ -76,7 +81,8 @@ node packages/cli/dist/bin.js ideas list [--status=draft|confirmed|rejected]
 node packages/cli/dist/bin.js ideas show <id>
 node packages/cli/dist/bin.js ideas confirm <id>
 node packages/cli/dist/bin.js ideas reject <id>
-node packages/cli/dist/bin.js schedule install --interval=3600      # launchd plist for hourly bookmarks sync
+node packages/cli/dist/bin.js run-cycle [--pull-max=N] [--sync-limit=N] [--skip-pull|--skip-synthesize]  # autonomous tick: pull → sync → synthesize
+node packages/cli/dist/bin.js schedule install --interval=3600 [--mode=run-cycle|bookmarks-sync]  # launchd plist for hourly cycle
 node packages/cli/dist/bin.js mcp register --client=claude          # wire xs-mcp into Claude Desktop
 node packages/cli/dist/bin.js review                                # list duplicate-name entity candidates
 node packages/cli/dist/bin.js trends [--top=N] [--format=table|json]
@@ -85,9 +91,11 @@ node packages/cli/dist/bin.js trends [--top=N] [--format=table|json]
 node packages/rest/dist/bin.js          # bearer-protected REST on :7777
 node packages/mcp-server/dist/bin.js    # stdio MCP server
 
-# Web-UI (review surface for L1 ideas; port 3737)
+# Web-UI (full bookmark dashboard; port 3737) — RUN IN USER'S OWN TERMINAL
 pnpm --filter @x-scraper/web-ui dev
 pnpm --filter @x-scraper/web-ui build && pnpm --filter @x-scraper/web-ui start
+# Web-UI typecheck (workspace pnpm typecheck excludes web-ui — run separately)
+cd apps/web-ui && pnpm exec tsc --noEmit -p tsconfig.json
 
 # Codex review at milestones
 codex review --base main
@@ -115,6 +123,10 @@ TypeScript (Node 22.13+, ESM, pnpm 10) · Patchright (stealth Playwright) · **N
 - Auth fails closed: `xs-rest` refuses to start without a bearer token unless `XSCRAPER_REST_ALLOW_UNAUTH=1`.
 - **Neo4j test-pollution prevention**: any spike or test that writes to live Neo4j MUST prefix every node id with `xs_int_test_` (integration tests) or `xs_spike<N>_` (spikes), and DETACH DELETE its prefixed nodes in `afterAll` / `finally`.
 - **Web-ui excluded from workspace lint/typecheck.** Next has its own passes via `next build` and per-package `tsc`. The strict-type-checked profile we apply to packages conflicts with RSC/JSX patterns.
+- **Web-ui SQLite reads via subprocess.** `better-sqlite3` cannot be bundled by Next.js webpack — `bindings@1.5.0` walks `Error.stack` and crashes under bundled paths. From web-ui code, query the queue via `/usr/bin/sqlite3 -readonly -json` subprocess (pattern: `apps/web-ui/lib/bookmark-ledger.ts`). NEVER `import` `@x-scraper/queue` or `better-sqlite3` from web-ui server components.
+- **Web-ui sync-from-app via subprocess + file stdio.** "Sync from x.com" button spawns `/opt/homebrew/bin/node packages/cli/dist/bin.js run-cycle` with `stdio: ['ignore', logFd, logFd]` (file fd, NOT pipe). True detachment requires file-based stdio — pipes break on parent death and EPIPE the child. Pattern: `apps/web-ui/lib/sync-runner.ts`. Liveness check via log file mtime (>90s + age >60s = presumed dead).
+- **Web-ui personal state at `<vault>/.xscraper/`** — pins.json, source-state.json, sync-runs/<id>.{json,log}, briefs/<id>.txt. Vault gitignore excludes `.xscraper/` so personal preferences stay local.
+- **Don't poll server actions in dev** — each call triggers full RSC re-render and dev recompile (30+s per request). Use `/api/.../route.ts` route handlers for status polling instead.
 
 ## Environment
 
@@ -125,4 +137,4 @@ TypeScript (Node 22.13+, ESM, pnpm 10) · Patchright (stealth Playwright) · **N
 
 ## Current status
 
-Session 8 reshape: capture/refine split + L0→L1 synthesizer + Next.js review UI shipped. Live corpus: 304 sources, 1,261 claims, 391 entities, 16 draft Ideas. 352 tests passing. Six commits on main since session 7 handoff.
+**Product plan (2026-07-10):** `docs/PRODUCT_PLAN.md` — interest graph (capture → connect → recall). **Phase 0 complete**; **Phase 1** (`related()`) is current. Commits `187f1b4` + `3af6873` on `main`. 370 package tests. Ledger drain blocked by invalid Gemini key; schedule install skipped (documented). See HANDOFF.md.
