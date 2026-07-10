@@ -15,6 +15,7 @@
     "@anthropic-ai/sdk": "^0.91.1",
     "@types/better-sqlite3": "^7.6.13",
     "@x-scraper/core": "workspace:*",
+    "@x-scraper/digest": "workspace:*",
     "@x-scraper/queue": "workspace:*",
     "@x-scraper/related": "workspace:*",
     "@x-scraper/synthesizer": "workspace:*",

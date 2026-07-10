@@ -23,7 +23,7 @@ export default async function DigestPage({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-100">Digest</h1>
           <p className="mt-0.5 text-sm text-zinc-500">
-            Your last {windowDays} days · {formatDate(data.windowStart)} →{' '}
+            Theme-forward briefing · last {windowDays} days · {formatDate(data.windowStart)} →{' '}
             {formatDate(data.windowEnd)}
           </p>
         </div>
@@ -46,6 +46,10 @@ export default async function DigestPage({
 
       <section className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-4">
+          <div className="font-mono text-2xl tabular-nums text-sky-300">{data.themes.length}</div>
+          <div className="mt-1 text-[11px] uppercase tracking-wide text-zinc-500">themes</div>
+        </div>
+        <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-4">
           <div className="font-mono text-2xl tabular-nums text-zinc-100">{data.totalCaptures}</div>
           <div className="mt-1 text-[11px] uppercase tracking-wide text-zinc-500">captures</div>
         </div>
@@ -58,17 +62,73 @@ export default async function DigestPage({
           </div>
         </div>
         <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-4">
-          <div className="font-mono text-2xl tabular-nums text-zinc-100">{data.totalReadMins}</div>
+          <div className="font-mono text-2xl tabular-nums text-zinc-100">
+            {data.claimCountInWindow}
+          </div>
           <div className="mt-1 text-[11px] uppercase tracking-wide text-zinc-500">
-            est. min read
+            claims in window
           </div>
         </div>
-        <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-4">
-          <div className="font-mono text-2xl tabular-nums text-amber-400">{data.unreadCount}</div>
-          <div className="mt-1 text-[11px] uppercase tracking-wide text-zinc-500">
-            unread overall
-          </div>
-        </div>
+      </section>
+
+      <section className="mb-10">
+        <header className="mb-3">
+          <h2 className="text-base font-semibold text-zinc-100">Themes</h2>
+          <p className="text-xs text-zinc-500">
+            Idea subjects that touch this window — same assembleThemes path as package digests
+          </p>
+        </header>
+        {data.themes.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-zinc-800 bg-zinc-900/30 p-4 text-center text-xs text-zinc-500">
+            No idea themes touched this window. Capture more sources or wait for synthesis.
+          </p>
+        ) : (
+          <ul className="space-y-2.5">
+            {data.themes.map((t) => (
+              <li
+                key={t.ideaId}
+                className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 transition hover:border-zinc-600"
+              >
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <Link
+                    href={`/ideas/${t.ideaId}`}
+                    className="text-sm font-medium text-zinc-100 hover:text-sky-300"
+                  >
+                    {t.subject}
+                  </Link>
+                  <span className="shrink-0 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                    {t.status}
+                  </span>
+                </div>
+                <div className="mt-1 font-mono text-[11px] text-zinc-500">{t.ideaId}</div>
+                {t.linkedSourceIds.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <span className="text-[11px] text-zinc-500">Linked this window:</span>
+                    {t.linkedSourceIds.slice(0, 8).map((sid) => (
+                      <Link
+                        key={sid}
+                        href={`/sources/${sid}`}
+                        className="rounded bg-zinc-800/80 px-1.5 py-0.5 font-mono text-[10px] text-sky-400/90 hover:text-sky-300"
+                      >
+                        {sid}
+                      </Link>
+                    ))}
+                    {t.linkedSourceIds.length > 8 ? (
+                      <span className="text-[10px] text-zinc-500">
+                        +{t.linkedSourceIds.length - 8} more
+                      </span>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-[11px] text-zinc-500">
+                    Updated this window · {t.sourceIds.length} source
+                    {t.sourceIds.length === 1 ? '' : 's'} total
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       {Object.keys(data.byContentType).length > 0 ? (
@@ -209,7 +269,7 @@ export default async function DigestPage({
       ) : null}
 
       {data.recentSources.length > 0 ? (
-        <section className="mb-12">
+        <section className="mb-8">
           <h2 className="mb-3 text-base font-semibold text-zinc-100">Recent captures</h2>
           <ul className="space-y-1.5">
             {data.recentSources.map((s) => (
@@ -231,6 +291,18 @@ export default async function DigestPage({
           </ul>
         </section>
       ) : null}
+
+      <section className="mb-12">
+        <header className="mb-3">
+          <h2 className="text-base font-semibold text-zinc-100">Offline theme body</h2>
+          <p className="text-xs text-zinc-500">
+            Deterministic package output (formatThemeForwardBody) — same as CLI offline digest
+          </p>
+        </header>
+        <pre className="overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-950/80 p-4 text-[11px] leading-relaxed text-zinc-400 whitespace-pre-wrap">
+          {data.themeBody}
+        </pre>
+      </section>
     </main>
   );
 }

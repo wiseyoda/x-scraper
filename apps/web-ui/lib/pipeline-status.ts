@@ -30,9 +30,10 @@ export const derivePipelineStage = (input: PipelineStatusInput): PipelineStage =
   const claims = input.claimCount ?? 0;
   const ideas = input.ideaCount ?? 0;
   if (ideas > 0) return 'synthesized';
+  // Claims or a finished ledger sync both mean extract has run (or the
+  // source is past capture). Prefer "extracted" over bare "synced".
   if (claims > 0 || ledger === 'synced') return 'extracted';
   if (ledger === 'new') return 'captured';
-  if (ledger === 'synced') return 'synced';
   return 'unknown';
 };
 

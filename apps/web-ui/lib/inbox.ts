@@ -21,7 +21,7 @@ import type {
 import { authorFromUrl, type AuthorRef } from './author';
 import { loadLedgerOverlay } from './bookmark-ledger';
 import { deriveInboxDisplay } from './inbox-display';
-import { derivePipelineStage } from './pipeline-status';
+import { derivePipelineStage, fastPrimaryFromBookmark } from './pipeline-status';
 import { pinnedIdSet } from './pins';
 import { allSourceState, type SourceState } from './source-state';
 import { getVault } from './vault';
@@ -173,17 +173,43 @@ const loadEntitiesBySource = async (): Promise<Map<string, number>> => {
   return out;
 };
 
+const loadIdeasBySource = async (): Promise<Map<string, number>> => {
+  const vault = await getVault();
+  const out = new Map<string, number>();
+  let list;
+  try {
+    list = await vault.list('Idea');
+  } catch {
+    return out;
+  }
+  await Promise.all(
+    list.map(async (e) => {
+      try {
+        const r = await vault.read(e.id, 'Idea');
+        if (r.frontmatter.type !== 'Idea') return;
+        const fm = r.frontmatter as IdeaFrontmatter;
+        for (const sid of fm.sources) out.set(sid, (out.get(sid) ?? 0) + 1);
+      } catch {
+        /* skip */
+      }
+    }),
+  );
+  return out;
+};
+
 export const loadInbox = async (filter: InboxFilter = {}): Promise<InboxResult> => {
   const vault = await getVault();
   const list = await vault.list('Source');
 
-  const [pinned, stateMap, claimsBySource, entitiesBySource, ledgerMap] = await Promise.all([
-    pinnedIdSet(),
-    allSourceState(),
-    loadClaimsBySource(),
-    loadEntitiesBySource(),
-    loadLedgerOverlay(),
-  ]);
+  const [pinned, stateMap, claimsBySource, entitiesBySource, ideasBySource, ledgerMap] =
+    await Promise.all([
+      pinnedIdSet(),
+      allSourceState(),
+      loadClaimsBySource(),
+      loadEntitiesBySource(),
+      loadIdeasBySource(),
+      loadLedgerOverlay(),
+    ]);
 
   const reads = await Promise.all(
     list.map(async (entry) => {
@@ -197,19 +223,68 @@ export const loadInbox = async (filter: InboxFilter = {}): Promise<InboxResult> 
         const bookmarkedAt = ledger?.bookmarkedAt ?? null;
         const kind: InboxRow['kind'] = ledger === null ? 'unknown' : ledger.kind;
         const bylineRaw = fm.host_metadata?.['byline'];
-        const byline = typeof bylineRaw === 'string' ? bylineRaw : null;
-        const display = deriveInboxDisplay({
-          url: fm.canonical_url,
-          contentType: fm.content_type,
-          body: r.body,
-          byline,
-        });
+        const byline =
+          typeof bylineRaw === 'string'
+            ? bylineRaw
+            : (ledger?.author ?? null);
+        const claimCount = claimsBySource.get(fm.id) ?? 0;
+        const ideaCount = ideasBySource.get(fm.id) ?? 0;
+        const ledgerStatus = ledger?.status ?? null;
+
+        // Fast path: before extract finishes (no claims yet), prefer ledger
+        // bookmark text/byline so the row is human-readable immediately.
+        const bodyLooksEmpty =
+          r.body.trim().length === 0 || /^https?:\/\/\S+$/i.test(r.body.trim());
+        const hasLedgerText =
+          ledger?.text !== null && ledger?.text !== undefined && ledger.text.trim().length > 0;
+        const useFast =
+          claimCount === 0 &&
+          (ledgerStatus === 'new' || bodyLooksEmpty) &&
+          (hasLedgerText || byline !== null);
+
+        let primary: string;
+        let secondary: string;
+        let title: string | null;
+        let snippet: string | null;
+        let authorHandle: string | null;
+        let authorDisplay: string | null;
+
+        if (useFast) {
+          const fast = fastPrimaryFromBookmark({
+            text: ledger?.text ?? null,
+            byline,
+            url: fm.canonical_url,
+          });
+          primary = fast.primary;
+          secondary = fast.secondary;
+          title = null;
+          snippet =
+            hasLedgerText && ledger?.text !== null && ledger?.text !== undefined
+              ? ledger.text.trim().slice(0, 280)
+              : null;
+          authorHandle = byline !== null ? byline.toLowerCase().replace(/^@/, '') : null;
+          authorDisplay = byline;
+        } else {
+          const display = deriveInboxDisplay({
+            url: fm.canonical_url,
+            contentType: fm.content_type,
+            body: r.body,
+            byline,
+          });
+          primary = display.primary;
+          secondary = display.secondary;
+          title = display.title;
+          snippet = display.snippet;
+          authorHandle = display.authorHandle;
+          authorDisplay = display.authorDisplay;
+        }
+
         const urlAuthor = authorFromUrl(fm.canonical_url);
         const author: AuthorRef | null =
-          display.authorHandle !== null
+          authorHandle !== null
             ? {
-                handle: display.authorHandle,
-                display: display.authorDisplay ?? display.authorHandle,
+                handle: authorHandle,
+                display: authorDisplay ?? authorHandle,
                 source: urlAuthor?.source ?? (byline !== null ? 'capture' : 'unknown'),
               }
             : null;
@@ -224,24 +299,22 @@ export const loadInbox = async (filter: InboxFilter = {}): Promise<InboxResult> 
           // "most-recently-bookmarked" order from the pull). Falls back to
           // import time for sources we can't trace to a ledger row.
           sortAt: bookmarkedAt ?? fm.captured_at,
-          primary: display.primary,
-          secondary: display.secondary,
-          title: display.title,
-          snippet: display.snippet,
+          primary,
+          secondary,
+          title,
+          snippet,
           author,
           pinned: pinned.has(fm.id),
           read: st.readAt !== null,
           readAt: st.readAt,
           tags: st.tags,
           kind,
-          claimCount: claimsBySource.get(fm.id) ?? 0,
+          claimCount,
           entityCount: entitiesBySource.get(fm.id) ?? 0,
           pipelineStage: derivePipelineStage({
-            // Ledger overlay is organic/derived only; vault source existence
-            // implies capture. Claims/ideas advance the progressive chip.
-            ledgerStatus: 'synced',
-            claimCount: claimsBySource.get(fm.id) ?? 0,
-            ideaCount: 0,
+            ledgerStatus,
+            claimCount,
+            ideaCount,
           }),
         } satisfies InboxRow;
       } catch {

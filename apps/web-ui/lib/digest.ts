@@ -1,17 +1,24 @@
 /**
- * Weekly digest computation. Counts captures, ideas, claims, top
- * authors and entities scoped to a window (default 7 days). Pure read,
- * no LLM. Used by /digest.
+ * Weekly digest computation. Theme-forward via @x-scraper/digest
+ * assembleThemes / formatThemeForwardBody, plus inventory tallies for
+ * the UI chrome. Pure read, no LLM. Used by /digest.
  */
 
 import 'server-only';
 
 import type {
+  ClaimFrontmatter,
   EntityFrontmatter,
   EntityType,
   IdeaFrontmatter,
   SourceFrontmatter,
 } from '@x-scraper/core';
+import {
+  assembleThemes,
+  formatThemeForwardBody,
+  type DigestTheme,
+  type IdeaThemeInput,
+} from '@x-scraper/digest';
 
 import { authorFromUrl } from './author';
 import { allSourceState } from './source-state';
@@ -75,6 +82,11 @@ export interface DigestData {
   topAuthors: DigestAuthorRow[];
   topEntities: DigestEntityRow[];
   unreadCount: number;
+  /** Theme rows from package assembleThemes (idea subjects touching window). */
+  themes: DigestTheme[];
+  /** Deterministic theme-forward body (same helper as offline digests). */
+  themeBody: string;
+  claimCountInWindow: number;
 }
 
 const estimateReadMins = (body: string): number => {
@@ -82,14 +94,20 @@ const estimateReadMins = (body: string): number => {
   return Math.max(1, Math.round(words / 200));
 };
 
+const weekLabelFor = (start: Date, end: Date): string => {
+  const fmt = (d: Date): string => d.toISOString().slice(0, 10);
+  return `${fmt(start)} → ${fmt(end)}`;
+};
+
 export const computeDigest = async (windowDays = 7): Promise<DigestData> => {
   const vault = await getVault();
   const now = new Date();
   const windowStart = new Date(now.getTime() - windowDays * 24 * 60 * 60 * 1000);
 
-  const [sourceList, ideaList, entityLists, stateMap] = await Promise.all([
+  const [sourceList, ideaList, claimList, entityLists, stateMap] = await Promise.all([
     vault.list('Source').catch(() => []),
     vault.list('Idea').catch(() => []),
+    vault.list('Claim').catch(() => []),
     Promise.all(
       ENTITY_TYPES.map(async (t) => {
         try {
@@ -152,7 +170,7 @@ export const computeDigest = async (windowDays = 7): Promise<DigestData> => {
     .sort((a, b) => b.newBookmarks - a.newBookmarks)
     .slice(0, 6);
 
-  // Ideas: confirmed-in-window vs draft-in-window
+  // Ideas: all valid + window filter for tallies / theme assembly
   const ideaFms = await Promise.all(
     ideaList.map(async (e) => {
       try {
@@ -164,9 +182,10 @@ export const computeDigest = async (windowDays = 7): Promise<DigestData> => {
       }
     }),
   );
-  const ideaInWindow = ideaFms
-    .filter((fm): fm is IdeaFrontmatter => fm !== null)
-    .filter((fm) => Date.parse(fm.updated_at) >= windowStart.getTime());
+  const ideasValid = ideaFms.filter((fm): fm is IdeaFrontmatter => fm !== null);
+  const ideaInWindow = ideasValid.filter(
+    (fm) => Date.parse(fm.updated_at) >= windowStart.getTime(),
+  );
 
   const newConfirmedIdeas: DigestIdeaRow[] = ideaInWindow
     .filter((fm) => fm.status === 'confirmed')
@@ -194,8 +213,46 @@ export const computeDigest = async (windowDays = 7): Promise<DigestData> => {
       confidence: fm.synthesizer_confidence,
     }));
 
+  // Claims in window (for theme body inventory)
+  const claimIdsInWindow: string[] = [];
+  await Promise.all(
+    claimList.map(async (e) => {
+      try {
+        const r = await vault.read(e.id, 'Claim');
+        if (r.frontmatter.type !== 'Claim') return;
+        const fm = r.frontmatter as ClaimFrontmatter;
+        if (fm.invalid_at !== null) return;
+        const ts = fm.updated_at ?? fm.created_at;
+        if (ts !== undefined && Date.parse(ts) >= windowStart.getTime()) {
+          claimIdsInWindow.push(fm.id);
+        }
+      } catch {
+        /* skip */
+      }
+    }),
+  );
+
+  // Theme-forward core — same package helpers as CLI digests
+  const recentSourceIds = new Set(inWindow.map((r) => r.fm.id));
+  const recentIdeaIds = new Set(ideaInWindow.map((fm) => fm.id));
+  const ideaInputs: IdeaThemeInput[] = ideasValid.map((fm) => ({
+    id: fm.id,
+    subject: fm.subject,
+    status: fm.status,
+    sourceIds: fm.sources,
+    updatedAt: fm.updated_at,
+  }));
+  const themes = assembleThemes(ideaInputs, recentSourceIds, recentIdeaIds);
+  const sourceIdsForBody = recentSources.map((s) => s.id);
+  const themeBody = formatThemeForwardBody(
+    weekLabelFor(windowStart, now),
+    themes,
+    sourceIdsForBody,
+    claimIdsInWindow,
+  );
+
   // Top entities — entities mentioned in NEW sources this window.
-  const newSourceIdSet = new Set(inWindow.map((r) => r.fm.id));
+  const newSourceIdSet = recentSourceIds;
   const entityRows: DigestEntityRow[] = [];
   for (let i = 0; i < ENTITY_TYPES.length; i += 1) {
     const type = ENTITY_TYPES[i];
@@ -246,5 +303,8 @@ export const computeDigest = async (windowDays = 7): Promise<DigestData> => {
     topAuthors,
     topEntities,
     unreadCount,
+    themes,
+    themeBody,
+    claimCountInWindow: claimIdsInWindow.length,
   };
 };

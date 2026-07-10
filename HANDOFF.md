@@ -1,40 +1,49 @@
 # Session Handoff
 
-> Updated 2026-07-10 — Phases 0–3 complete. Product plan at Phase 4 optional.
+> Updated 2026-07-10 — Phase 4 started (P4.4 done). Web-ui for viewing on :3737.
 
 ## Current State
 
-- **Branch:** `main` with local commits through Phase 2–3 work
-- **Tests:** ~396 passed / 3 skipped
-- **Product plan:** Phases 0–3 done; J1/J2/J3 assessed in PRODUCT_PLAN Working log
-- **Synthesizer:** prompt version **2** (research-thread body). Existing ideas remain v1 bodies until re-synth with `--force`
+- **Branch:** `main` (ahead of origin; Phase 2–3 skeptic wiring + P4.4 **uncommitted**)
+- **Tests:** package suite ~396; web-ui adds pipeline-status + inbox-display + **sync-run-retention** tests
+- **Product plan:** Phases 0–3 done; **P4.4 done**; P4.1–P4.3 / P4.5 open
+- **Synthesizer:** prompt version **2**. Existing ideas remain v1 bodies until re-synth with `--force`
+- **Web-ui:** `http://127.0.0.1:3737` (dev server started for this session)
 
-## What shipped (Phases 2–3)
+## What shipped recently
 
 | Area | Surface |
 |------|---------|
-| Ideas | Structured thesis/evidence/open questions/watch-fors; diversity ranking |
-| Digest | Theme-forward markdown with idea ids |
-| Recall | MCP `related_to`, `whats_new`, `search_ideas`; CLI mirrors |
-| Inbox | Pipeline stage chip; fast primary from payload (unit-tested) |
+| Ideas | v2 research-thread; diversity ranking |
+| Digest | Theme-forward package + web-ui `/digest` |
+| Recall | MCP + CLI related / whats-new / search-ideas |
+| Inbox | Real progressive stage + fast primary from ledger |
+| **P4.4** | Sync-run log retention under `.xscraper/sync-runs/` (keep 20 / 14d) |
+
+## Ranked next work
+
+1. **#1 Commit** Phase 2–3 + P4.4 dirty tree (stabilize product value)
+2. Schedule install (`run-cycle`) — needs your OK (LaunchAgent)
+3. Limited v2 re-synth of top ideas (`--force --limit=N`)
+4. P4.3 mobile layout
+5. P4.1 graph canvas / P4.2 topics / P4.5 likes only if dogfood demands them
+
+Full table: `docs/PRODUCT_PLAN.md` Working log (2026-07-10 Phase 4 start).
 
 ## Commands
 
 ```bash
+# Web-ui
+pnpm --filter @x-scraper/web-ui dev   # http://127.0.0.1:3737
+
 /opt/homebrew/bin/node packages/cli/dist/bin.js related idea_8ec95fc7 --vault-only
 /opt/homebrew/bin/node packages/cli/dist/bin.js search-ideas --query=claude --limit=10
 /opt/homebrew/bin/node packages/cli/dist/bin.js whats-new --limit=10
-/opt/homebrew/bin/node packages/cli/dist/bin.js ideas synthesize --force --limit=3   # re-draft with v2 (costs LLM)
-pnpm --filter @x-scraper/web-ui dev
+/opt/homebrew/bin/node packages/cli/dist/bin.js ideas synthesize --force --limit=3
 ```
-
-## Next (optional)
-
-1. Re-synthesize high-value ideas with v2 (`ideas synthesize --force`) for research-thread bodies
-2. `xs schedule install --mode=run-cycle` for autonomous growth
-3. Phase 4 polish if desired
 
 ## Traps
 
-- v2 idea ids differ from v1 (prompt version in id key) — force re-synth creates parallel drafts under new ids unless you map carefully; id is `anchor|v{version}`
-- Web-ui still uses related vault-only (no graph embeddings)
+- v2 idea ids differ from v1 (prompt version in id key)
+- Web-ui related is vault-only (no graph embeddings)
+- Do not `schedule install` without explicit consent

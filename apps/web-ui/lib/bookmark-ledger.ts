@@ -32,14 +32,20 @@ interface LedgerRow {
   tweet_created_at: string | null;
   created_at: string;
   source_kind: string;
+  status: string | null;
+  text: string | null;
 }
 
 const querySqlite = async (sql: string): Promise<LedgerRow[]> => {
   // -json emits an array of {col: val} objects.
-  // -readonly opens the db without locking — safe for concurrent reads.
+  // Prefer URI mode=ro over CLI `-readonly`: on WAL databases, macOS
+  // sqlite3 -readonly often fails with "unable to open database file"
+  // when the process cannot create/lock the shared -shm (common under
+  // Next and some sandboxes). mode=ro still refuses writes.
+  const dbUri = `file:${queuePath()}?mode=ro`;
   const { stdout } = await execFileAsync(
     '/usr/bin/sqlite3',
-    ['-readonly', '-json', queuePath(), sql],
+    ['-json', dbUri, sql],
     { maxBuffer: 32 * 1024 * 1024 },
   );
   if (stdout.trim().length === 0) return [];
@@ -58,6 +64,10 @@ export interface LedgerOverlay {
    * filter to organic by default since derived URLs are noise.
    */
   kind: 'organic' | 'derived';
+  /** Ledger pipeline status: new | synced | failed (when known). */
+  status: 'new' | 'synced' | 'failed' | null;
+  /** Raw tweet/bookmark text from pull — enables pre-extract inbox primary. */
+  text: string | null;
 }
 
 export interface LastSyncInfo {
@@ -78,7 +88,7 @@ export const lastSyncInfo = async (): Promise<LastSyncInfo> => {
     const last = rows[0]?.created_at ?? null;
     const counts = await querySqlite(
       `SELECT COUNT(*) AS n, '' AS source_url, '' AS author, NULL AS tweet_created_at,
-              '' AS created_at, 'organic' AS source_kind
+              '' AS created_at, 'organic' AS source_kind, NULL AS status, NULL AS text
          FROM bookmark_ledger WHERE source_kind = 'organic'`,
     );
     const n = (counts[0] as unknown as { n?: number })?.n ?? 0;
@@ -102,7 +112,7 @@ export const loadLedgerOverlay = async (): Promise<Map<string, LedgerOverlay>> =
   if (cachedMap !== null && now - cachedAt < CACHE_TTL_MS) return cachedMap;
   try {
     const rows = await querySqlite(
-      `SELECT source_url, author, tweet_created_at, created_at, source_kind
+      `SELECT source_url, author, tweet_created_at, created_at, source_kind, status, text
          FROM bookmark_ledger`,
     );
     const map = new Map<string, LedgerOverlay>();
@@ -112,11 +122,16 @@ export const loadLedgerOverlay = async (): Promise<Map<string, LedgerOverlay>> =
       if (existing !== undefined && existing.kind === 'organic' && r.source_kind === 'derived') {
         continue;
       }
+      const st = r.status;
+      const status: LedgerOverlay['status'] =
+        st === 'new' || st === 'synced' || st === 'failed' ? st : null;
       map.set(r.source_url, {
         postedAt: r.tweet_created_at,
         author: r.author,
         bookmarkedAt: r.created_at,
         kind: r.source_kind === 'derived' ? 'derived' : 'organic',
+        status,
+        text: r.text,
       });
     }
     cachedMap = map;

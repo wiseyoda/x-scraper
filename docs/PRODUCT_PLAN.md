@@ -360,7 +360,7 @@ Do not start until Phase 3 gate passes unless a task is trivial and unblocked.
 | P4.1 | Graph canvas driven by `related()` API (not a second graph model)  | V3    | `[ ]`  |
 | P4.2 | Topic detection revival (Louvain → topic.md) if ideas insufficient | V3    | `[ ]`  |
 | P4.3 | Mobile layout pass                                                 | V3    | `[ ]`  |
-| P4.4 | Sync-run log retention cleanup                                     | V1    | `[ ]`  |
+| P4.4 | Sync-run log retention cleanup                                     | V1    | `[x]`  |
 | P4.5 | Likes/posts ingestion                                              | V4+V3 | `[ ]`  |
 
 ---
@@ -419,27 +419,55 @@ Qualitative beats vanity counts. Prefer "Pat used it to find something" over "en
 
 Append-only session notes. Newest first.
 
+### 2026-07-10 — Phase 4 start + ranked next-work assessment
+
+**Done this session**
+- **P4.4 Sync-run log retention:** pure `selectRunIdsToPrune` / orphan-log cleanup; `pruneSyncRuns()` runs on each new `startSync`. Defaults: keep 20 newest finished runs, drop finished older than 14d, never prune pending/running. Unit tests in `apps/web-ui/lib/sync-run-retention.test.ts`.
+- Web-ui launched for viewing on **:3737** (HTTP 200 home/inbox/digest).
+- Bonus: ledger SQLite open switched to URI `mode=ro` (WAL-safe) so progressive inbox can read `status`/`text` under Next.
+
+**Ranked next work** (highest value first)
+
+| Rank | Item | Kind | Rationale |
+|------|------|------|-----------|
+| **#1** | **Commit / land Phase 2–3 + P4.4 dirty tree** | ops | Uncommitted product value on `main` (risk of drift / machine loss). Ship before more features. |
+| #2 | `xs schedule install --mode=run-cycle` (user consent) | ops | Unlocks continuous J1 capture without manual Sync; host LaunchAgent mutation — needs explicit OK. |
+| #3 | Limited v2 re-synth (`ideas synthesize --force --limit=N` on top drafts) | corpus | Research-thread bodies only appear after re-synth; cap N to control cost. |
+| #4 | **P4.3 Mobile layout pass** | P4 | App is primary surface; inbox/digest usable on phone raises weekly open rate. |
+| #5 | **P4.1 Graph canvas via `related()`** | P4 | Nice for explore; larger than lists already shipping — only if dogfood shows list UX insufficient. |
+| #6 | **P4.2 Topic revival** | P4 | Ideas already cover cluster narrative; revive only if Louvain adds distinct value. |
+| #7 | **P4.5 Likes/posts ingestion** | P4 | Expands corpus; lower urgency while organic bookmarks still drain/process. |
+
+**Recommended #1:** commit the uncommitted Phase 2–3 + P4.4 work, then (with consent) schedule install for autonomous ticks.
+
+**Still open (Phase 4):** P4.1, P4.2, P4.3, P4.5.
+
 ### 2026-07-10 — Phases 2–3 complete + final assessment
 
 **Phase 2**
 - Synthesizer v2 research-thread: thesis / evidence / open_questions / watch_fors; `SYNTHESIS_PROMPT_VERSION=2`.
 - Diversity ranking + echo-chamber confidence penalty; re-synth identity stable on (anchor, version).
 - Digest theme-forward (`assembleThemes` / `formatThemeForwardBody`); idea detail surfaces open questions.
+- **Skeptic fix (P2.5 honesty):** web-ui `/digest` now imports `@x-scraper/digest` and renders Themes (idea subject → id → linked sources) + offline `themeBody`, not KPI tallies alone.
 
 **Phase 3**
 - MCP: `related_to`, `whats_new`, `search_ideas` (+ CLI `whats-new`, `search-ideas`).
-- Progressive inbox stage chip + `fastPrimaryFromBookmark` unit tests.
+- **Skeptic fix (P3.1/P3.2 honesty):** `loadInbox` feeds real `ledgerStatus` (from SQLite overlay status/text), `claimCount`, and `ideaCount` (Idea.sources map) into `derivePipelineStage`; uses `fastPrimaryFromBookmark` when claimCount=0 and ledger text/byline available.
 - P3.7 web chat skipped (MCP tools solid; chat optional).
+
+**V0 (real transcript, not stub)**
+- build all packages OK; typecheck 21 projects OK; lint --quiet OK; vitest **396 passed / 3 skipped**; madge circular none; web-ui tsc OK.
+- CLI dogfood: `search-ideas --query=claude` → 5 idea ids; `related idea_* --vault-only` → non-empty; `whats-new` quiet window OK.
 
 **Final assessment (jobs to be done)**
 
 | Job | Status | Evidence |
 |-----|--------|----------|
-| J1 Capture | **Met for organic path** | Inbox human primary + pipeline stage; organic ledger drained; keys live; progressive derivation unit-tested. Full “seconds not minutes” still needs scheduled run-cycle. |
-| J2 Connect | **Met** | `@x-scraper/related`, source “Related in your vault”, homepage connections, `xs related` dogfood on Claude Code cluster. |
+| J1 Capture | **Met for organic path** | Human primary + real progressive stage + fast path from ledger text; keys live. Full “seconds not minutes” still needs scheduled run-cycle. |
+| J2 Connect | **Met** | `@x-scraper/related`, source “Related in your vault”, homepage connections, `xs related` dogfood. |
 | J3 Recall | **Met for agents** | MCP related_to / whats_new / search_ideas + CLI mirrors; unit + CLI dogfood with vault idea ids. |
 
-**Still optional (Phase 4):** graph canvas, topic revival, likes/posts, mobile polish.
+**Still optional (Phase 4):** graph canvas, topic revival, likes/posts, mobile polish, web ask box.
 
 ### 2026-07-10 — Phase 1 complete
 
@@ -474,8 +502,8 @@ Append-only session notes. Newest first.
 ## 10. Quick reference — next actions
 
 ```text
-NOW  → Phase 2 / P2.1: idea body contract + synthesizer version bump
-THEN → prompt rewrite → digest narrative → idea detail UI
+NOW  → Phase 4 optional polish (or re-synth v2 + schedule install)
+THEN → only if J1–J3 gaps reappear in dogfood
 ```
 
 **Command cheat sheet while executing:**

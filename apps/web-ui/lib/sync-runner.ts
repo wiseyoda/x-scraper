@@ -23,6 +23,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { resolveWebUiConfig } from './config';
+import {
+  selectOrphanLogRunIds,
+  selectRunIdsToPrune,
+  type RunRetentionInput,
+} from './sync-run-retention';
 
 const CLI_BIN_PATH =
   process.env.XSCRAPER_CLI_BIN ??
@@ -34,6 +39,56 @@ const runsDir = (): string => path.join(resolveWebUiConfig().vaultDir, '.xscrape
 const runStatePath = (runId: string): string => path.join(runsDir(), `${runId}.json`);
 
 const runLogPath = (runId: string): string => path.join(runsDir(), `${runId}.log`);
+
+/**
+ * P4.4 — prune old sync-run state + logs under `.xscraper/sync-runs/`.
+ * Best-effort; never throws into the sync path.
+ */
+export const pruneSyncRuns = async (): Promise<{ pruned: number }> => {
+  try {
+    const dir = runsDir();
+    const entries = await fs.readdir(dir);
+    const jsonFiles = entries.filter((f) => f.endsWith('.json'));
+    const inputs: RunRetentionInput[] = [];
+    for (const f of jsonFiles) {
+      try {
+        const raw = await fs.readFile(path.join(dir, f), 'utf8');
+        const s = JSON.parse(raw) as SyncRunState;
+        if (typeof s.runId !== 'string' || typeof s.startedAt !== 'string') continue;
+        const stage = s.stage;
+        if (
+          stage !== 'pending' &&
+          stage !== 'running' &&
+          stage !== 'success' &&
+          stage !== 'failed'
+        ) {
+          continue;
+        }
+        inputs.push({ runId: s.runId, startedAt: s.startedAt, stage });
+      } catch {
+        /* skip corrupt */
+      }
+    }
+    const ids = new Set([
+      ...selectRunIdsToPrune(inputs, { nowMs: Date.now() }),
+      ...selectOrphanLogRunIds(entries),
+    ]);
+    let pruned = 0;
+    for (const id of ids) {
+      for (const ext of ['.json', '.log'] as const) {
+        try {
+          await fs.unlink(path.join(dir, `${id}${ext}`));
+          pruned += 1;
+        } catch {
+          /* missing ok */
+        }
+      }
+    }
+    return { pruned };
+  } catch {
+    return { pruned: 0 };
+  }
+};
 
 export type SyncStage = 'pending' | 'running' | 'success' | 'failed';
 
@@ -159,6 +214,9 @@ export const startSync = async (
   if (inflight !== null) {
     return { runId: inflight.runId, alreadyRunning: true };
   }
+
+  // Housekeeping before a new run so disk doesn't grow unbounded.
+  await pruneSyncRuns();
 
   const runId = randomUUID();
   const state: SyncRunState = {

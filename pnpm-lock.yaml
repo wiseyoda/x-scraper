@@ -92,6 +92,9 @@ importers:
       '@x-scraper/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@x-scraper/digest':
+        specifier: workspace:*
+        version: link:../../packages/digest
       '@x-scraper/queue':
         specifier: workspace:*
         version: link:../../packages/queue
