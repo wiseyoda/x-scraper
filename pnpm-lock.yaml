@@ -95,6 +95,9 @@ importers:
       '@x-scraper/queue':
         specifier: workspace:*
         version: link:../../packages/queue
+      '@x-scraper/related':
+        specifier: workspace:*
+        version: link:../../packages/related
       '@x-scraper/synthesizer':
         specifier: workspace:*
         version: link:../../packages/synthesizer
@@ -202,6 +205,9 @@ importers:
       '@x-scraper/reconciler':
         specifier: workspace:*
         version: link:../reconciler
+      '@x-scraper/related':
+        specifier: workspace:*
+        version: link:../related
       '@x-scraper/scraper':
         specifier: workspace:*
         version: link:../scraper
@@ -501,6 +507,31 @@ importers:
       '@x-scraper/llm':
         specifier: workspace:*
         version: link:../llm
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.17
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.19.17)(jsdom@29.0.2)(lightningcss@1.32.0)
+
+  packages/related:
+    dependencies:
+      '@x-scraper/core':
+        specifier: workspace:*
+        version: link:../core
+      '@x-scraper/graph':
+        specifier: workspace:*
+        version: link:../graph
+      '@x-scraper/vault':
+        specifier: workspace:*
+        version: link:../vault
       zod:
         specifier: ^4.3.6
         version: 4.3.6

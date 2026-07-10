@@ -20,6 +20,7 @@
     { "path": "../observability" },
     { "path": "../queue" },
     { "path": "../reconciler" },
+    { "path": "../related" },
     { "path": "../scraper" },
     { "path": "../synthesizer" },
     { "path": "../vault" }

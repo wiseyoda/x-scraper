@@ -281,25 +281,30 @@ export default async function SourcePage({ params }: { params: Promise<{ id: str
           {detail.related.length > 0 ? (
             <section>
               <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                Related sources
+                Related in your vault
               </h2>
-              <p className="mb-2 text-xs text-zinc-500">Sharing entities with this one.</p>
+              <p className="mb-2 text-xs text-zinc-500">
+                Shared entities, claims, and authors (connection engine).
+              </p>
               <ul className="space-y-1.5">
                 {detail.related.map((r) => (
                   <li
-                    key={r.id}
+                    key={r.targetId}
                     className="rounded-md border border-zinc-800 bg-zinc-900/40 transition hover:border-zinc-600"
                   >
-                    <Link href={`/sources/${r.id}`} className="block p-2.5">
+                    <Link href={r.href} className="block p-2.5">
                       <div className="flex items-center gap-2">
                         <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] uppercase text-zinc-400">
-                          {r.contentType}
+                          {r.targetKind}
                         </span>
-                        <span className="truncate text-xs text-zinc-300">{r.url}</span>
+                        <span className="truncate text-xs font-medium text-zinc-200">
+                          {r.label}
+                        </span>
+                        <span className="ml-auto shrink-0 font-mono text-[10px] text-zinc-600">
+                          {r.score.toFixed(1)}
+                        </span>
                       </div>
-                      <div className="mt-1 truncate text-[11px] text-zinc-500">
-                        via {r.via.join(', ')}
-                      </div>
+                      <div className="mt-1 line-clamp-2 text-[11px] text-zinc-500">{r.reason}</div>
                     </Link>
                   </li>
                 ))}

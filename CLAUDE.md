@@ -137,4 +137,4 @@ TypeScript (Node 22.13+, ESM, pnpm 10) · Patchright (stealth Playwright) · **N
 
 ## Current status
 
-**Product plan (2026-07-10):** `docs/PRODUCT_PLAN.md` — interest graph (capture → connect → recall). **Phase 0 complete**; **Phase 1** (`related()`) is current. Commits `187f1b4` + `3af6873` on `main`. 370 package tests. Ledger drain blocked by invalid Gemini key; schedule install skipped (documented). See HANDOFF.md.
+**Product plan (2026-07-10):** `docs/PRODUCT_PLAN.md` — interest graph. **Phase 0–1 complete**; **Phase 2** (living ideas) is current. Package `@x-scraper/related` + `xs related` + web-ui related/connections. ~377 package tests. See HANDOFF.md.

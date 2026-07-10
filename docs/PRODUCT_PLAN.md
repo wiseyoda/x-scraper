@@ -4,7 +4,8 @@
 > **Owner:** agent + Pat  
 > **Created:** 2026-07-10  
 > **Last updated:** 2026-07-10  
-> **Current phase:** Phase 1 — Connection engine  
+> **Current phase:** Phase 2 — Living ideas & narrative digest  
+
 > **North star:** Bookmark → named interest → connections → recall
 
 This is the working plan for reshaping x-scraper from a pipeline/catalog into a
@@ -284,14 +285,14 @@ Run with vault at `~/x-scraper-vault` (or `$XSCRAPER_VAULT`). Record results in 
 
 | ID   | Task                                                                                                                                                          | Verif           | Status |
 | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | ------ |
-| P1.1 | Design port + Zod types for RelatedHit / RelatedQuery (package: prefer `graph` or new thin `packages/related` only if needed — **prefer graph/search reuse**) | V1              | `[ ]`  |
-| P1.2 | Implement scorers: co-entity, co-claim, embedding neighbor, shared author                                                                                     | V1              | `[ ]`  |
-| P1.3 | Wire vault/graph adapters; graceful degrade if Neo4j down (vault-only path)                                                                                   | V1+V4 as needed | `[ ]`  |
-| P1.4 | CLI: `xs related <id> [--limit=N]` for debugging                                                                                                              | V2              | `[ ]`  |
-| P1.5 | Web-ui: "Related in your vault" on `/sources/[id]`                                                                                                            | V3              | `[ ]`  |
-| P1.6 | Web-ui: homepage "What connected since last visit"                                                                                                            | V3              | `[ ]`  |
-| P1.7 | Post-sync summary: N new sources → ideas/entities attached (log + UI banner)                                                                                  | V2+V3           | `[ ]`  |
-| P1.8 | Phase gate: dogfood + codex + baseline                                                                                                                        | V5              | `[ ]`  |
+| P1.1 | Design port + Zod types for RelatedHit / RelatedQuery (package: prefer `graph` or new thin `packages/related` only if needed — **prefer graph/search reuse**) | V1              | `[x]`  |
+| P1.2 | Implement scorers: co-entity, co-claim, embedding neighbor, shared author                                                                                     | V1              | `[x]`  |
+| P1.3 | Wire vault/graph adapters; graceful degrade if Neo4j down (vault-only path)                                                                                   | V1+V4 as needed | `[x]`  |
+| P1.4 | CLI: `xs related <id> [--limit=N]` for debugging                                                                                                              | V2              | `[x]`  |
+| P1.5 | Web-ui: "Related in your vault" on `/sources/[id]`                                                                                                            | V3              | `[x]`  |
+| P1.6 | Web-ui: homepage "What connected since last visit"                                                                                                            | V3              | `[x]`  |
+| P1.7 | Post-sync summary: N new sources → ideas/entities attached (log + UI banner)                                                                                  | V2+V3           | `[x]`  |
+| P1.8 | Phase gate: dogfood + codex + baseline                                                                                                                        | V5              | `[x]`  |
 
 **Acceptance examples (dogfood):**
 
@@ -418,6 +419,16 @@ Qualitative beats vanity counts. Prefer "Pat used it to find something" over "en
 
 Append-only session notes. Newest first.
 
+### 2026-07-10 — Phase 1 complete
+
+- New package `@x-scraper/related`: pure scorers (co-entity, co-claim, author, embedding neighbors) + vault corpus builder + `related()` / `attachmentsSince()`.
+- CLI: `xs related <id> [--limit=N] [--vault-only]`.
+- Web-ui: source detail "Related in your vault" + homepage "What connected since…"; both call shared package (not local rankers).
+- run-cycle logs 24h attachment count after successful sync (P1.7).
+- Unit tests: 7 in packages/related; full suite 377 pass. Live dogfood: `src_08b4af53` / `idea_8ec95fc7` non-empty related.
+- Embedding neighbors: pure path tested; GraphStore has no getEmbedding yet so live mode is vault scorers (graph open is optional/no-op for neighbors).
+- **Advanced Current phase → Phase 2.**
+
 ### 2026-07-10 — Phase 0 complete
 
 - **Commits:** `187f1b4` feat(synthesizer+cli): auto-confirm + run-cycle; `3af6873` feat(web-ui): dashboard + inbox humanization + sync-from-app.
@@ -441,8 +452,8 @@ Append-only session notes. Newest first.
 ## 10. Quick reference — next actions
 
 ```text
-NOW  → Phase 1 / P1.1: RelatedHit types + related() port design
-THEN → scorers → CLI xs related → web-ui related panels
+NOW  → Phase 2 / P2.1: idea body contract + synthesizer version bump
+THEN → prompt rewrite → digest narrative → idea detail UI
 ```
 
 **Command cheat sheet while executing:**

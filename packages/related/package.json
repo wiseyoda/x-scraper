@@ -1,0 +1,33 @@
+{
+  "name": "@x-scraper/related",
+  "version": "0.0.0",
+  "private": true,
+  "description": "related() connection engine — co-entity/claim/author/embed ranking over vault (+ optional graph).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:watch": "tsc -p tsconfig.json --watch"
+  },
+  "dependencies": {
+    "@x-scraper/core": "workspace:*",
+    "@x-scraper/graph": "workspace:*",
+    "@x-scraper/vault": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

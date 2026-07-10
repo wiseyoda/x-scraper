@@ -1,16 +1,8 @@
 /**
  * Build the rich data shape for /sources/[id] in one pass.
  *
- * Reads the Source frontmatter + body, then walks all claims to find
- * the ones extracted FROM this source, then walks all entities to find
- * the ones whose `sources` array includes this id. Plus related ideas
- * (ideas whose `sources` array includes this id). Plus related sources
- * (sources sharing entities — the closest thing to "more from this
- * topic" without a full graph traversal).
- *
- * On a 1k-claim, 500-entity vault this is ~1500 file reads parallelized
- * — sub-second. We accept that cost rather than caching since detail
- * pages are infrequent and the corpus mutates from outside.
+ * Related hits come from the shared @x-scraper/related engine (same as
+ * `xs related`) — not a page-local reimplementation of ranking.
  */
 
 import 'server-only';
@@ -22,6 +14,7 @@ import type {
   IdeaFrontmatter,
   SourceFrontmatter,
 } from '@x-scraper/core';
+import { related, type RelatedHit } from '@x-scraper/related';
 import type { VaultStore } from '@x-scraper/vault';
 
 import { getVault } from './vault';
@@ -62,13 +55,16 @@ export interface RelatedIdea {
   autoConfirmed: boolean;
 }
 
-export interface RelatedSource {
-  id: string;
-  url: string;
-  contentType: SourceFrontmatter['content_type'];
-  capturedAt: string;
-  /** Why this source is related — shared entity names. */
-  via: string[];
+/** Shared related engine hit, enriched for UI routing. */
+export interface RelatedVaultHit {
+  targetId: string;
+  targetKind: string;
+  reason: string;
+  score: number;
+  evidenceIds: string[];
+  /** Best-effort label for display. */
+  label: string;
+  href: string;
 }
 
 export interface SourceDetail {
@@ -77,8 +73,22 @@ export interface SourceDetail {
   claims: SourceClaim[];
   entities: RelatedEntity[];
   ideas: RelatedIdea[];
-  related: RelatedSource[];
+  /** Ranked related nodes from @x-scraper/related. */
+  related: RelatedVaultHit[];
 }
+
+const hrefFor = (hit: RelatedHit): string => {
+  switch (hit.targetKind) {
+    case 'Source':
+      return `/sources/${hit.targetId}`;
+    case 'Idea':
+      return `/ideas/${hit.targetId}`;
+    case 'Claim':
+      return `/sources/${hit.targetId}`;
+    default:
+      return `/entities/${hit.targetId}`;
+  }
+};
 
 export const loadSourceDetail = async (id: string): Promise<SourceDetail | null> => {
   const vault = await getVault();
@@ -91,49 +101,22 @@ export const loadSourceDetail = async (id: string): Promise<SourceDetail | null>
   if (record.frontmatter.type !== 'Source') return null;
   const fm = record.frontmatter;
 
-  const [claims, entities, ideas] = await Promise.all([
+  const [claims, entities, ideas, relatedResult] = await Promise.all([
     loadClaimsForSource(vault, id),
     loadEntitiesForSource(vault, id),
     loadIdeasForSource(vault, id),
+    related({ vault, graph: null }, { id, limit: 12 }),
   ]);
 
-  // Compute related sources: those sharing any entity with this source,
-  // excluding self. We already have the entity list — each entity's
-  // `sources` array gives us neighbours.
-  const neighbourScore = new Map<string, { score: number; via: Set<string> }>();
-  for (const ent of entities) {
-    const entRecord = await safeRead(vault, ent.id, ent.type);
-    if (entRecord === null) continue;
-    const efm = entRecord.frontmatter as EntityFrontmatter;
-    for (const otherId of efm.sources) {
-      if (otherId === id) continue;
-      const cur = neighbourScore.get(otherId) ?? { score: 0, via: new Set() };
-      cur.score += 1;
-      cur.via.add(ent.name);
-      neighbourScore.set(otherId, cur);
-    }
-  }
-  const relatedTopIds = [...neighbourScore.entries()]
-    .sort((a, b) => b[1].score - a[1].score)
-    .slice(0, 8)
-    .map(([nid, info]) => ({ id: nid, via: [...info.via].slice(0, 3) }));
-
-  const relatedSources: RelatedSource[] = (
-    await Promise.all(
-      relatedTopIds.map(async ({ id: rid, via }) => {
-        const sr = await safeRead(vault, rid, 'Source');
-        if (sr === null) return null;
-        const sfm = sr.frontmatter as SourceFrontmatter;
-        return {
-          id: sfm.id,
-          url: sfm.canonical_url,
-          contentType: sfm.content_type,
-          capturedAt: sfm.captured_at,
-          via,
-        };
-      }),
-    )
-  ).filter((r): r is RelatedSource => r !== null);
+  const relatedHits: RelatedVaultHit[] = relatedResult.hits.map((h) => ({
+    targetId: h.targetId,
+    targetKind: h.targetKind,
+    reason: h.reason,
+    score: h.score,
+    evidenceIds: h.evidenceIds,
+    label: labelForHit(h, entities, ideas),
+    href: hrefFor(h),
+  }));
 
   return {
     frontmatter: fm,
@@ -141,8 +124,22 @@ export const loadSourceDetail = async (id: string): Promise<SourceDetail | null>
     claims,
     entities,
     ideas,
-    related: relatedSources,
+    related: relatedHits,
   };
+};
+
+const labelForHit = (
+  h: RelatedHit,
+  entities: RelatedEntity[],
+  ideas: RelatedIdea[],
+): string => {
+  if (h.targetKind === 'Idea') {
+    const idea = ideas.find((i) => i.id === h.targetId);
+    if (idea !== undefined) return idea.subject;
+  }
+  const ent = entities.find((e) => e.id === h.targetId);
+  if (ent !== undefined) return ent.name;
+  return h.targetId;
 };
 
 const safeRead = async (vault: VaultStore, id: string, type: EntityType) => {
@@ -160,16 +157,16 @@ const loadClaimsForSource = async (vault: VaultStore, sourceId: string): Promise
       const r = await safeRead(vault, entry.id, 'Claim');
       if (r === null) return null;
       if (r.frontmatter.type !== 'Claim') return null;
-      const fm = r.frontmatter as ClaimFrontmatter;
-      if (!fm.sources.includes(sourceId)) return null;
-      if (fm.invalid_at !== null) return null;
+      const cfm = r.frontmatter as ClaimFrontmatter;
+      if (!cfm.sources.includes(sourceId)) return null;
+      if (cfm.invalid_at !== null) return null;
       return {
-        id: fm.id,
-        subject: fm.subject,
-        predicate: fm.predicate,
-        object: fm.object,
+        id: cfm.id,
+        subject: cfm.subject,
+        predicate: cfm.predicate,
+        object: cfm.object,
         body: r.body.trim(),
-        confidence: fm.confidence ?? 0,
+        confidence: cfm.confidence ?? 0,
       } satisfies SourceClaim;
     }),
   );
@@ -194,20 +191,19 @@ const loadEntitiesForSource = async (
           const r = await safeRead(vault, entry.id, type);
           if (r === null) return null;
           if (r.frontmatter.type !== type) return null;
-          const fm = r.frontmatter as EntityFrontmatter;
-          if (!fm.sources.includes(sourceId)) return null;
+          const efm = r.frontmatter as EntityFrontmatter;
+          if (!efm.sources.includes(sourceId)) return null;
           return {
-            id: fm.id,
-            type: fm.type,
-            name: fm.name,
-            sourceCount: fm.sources.length,
+            id: efm.id,
+            type: efm.type,
+            name: efm.name,
+            sourceCount: efm.sources.length,
           } satisfies RelatedEntity;
         }),
       );
       for (const e of reads) if (e !== null) out.push(e);
     }),
   );
-  // Sort by source-count descending (most-cited entity first).
   return out.sort((a, b) => b.sourceCount - a.sourceCount);
 };
 
@@ -218,19 +214,17 @@ const loadIdeasForSource = async (vault: VaultStore, sourceId: string): Promise<
       const r = await safeRead(vault, entry.id, 'Idea');
       if (r === null) return null;
       if (r.frontmatter.type !== 'Idea') return null;
-      const fm = r.frontmatter as IdeaFrontmatter;
-      if (!fm.sources.includes(sourceId)) return null;
+      const ifm = r.frontmatter as IdeaFrontmatter;
+      if (!ifm.sources.includes(sourceId)) return null;
       return {
-        id: fm.id,
-        subject: fm.subject,
-        status: fm.status,
-        confidence: fm.synthesizer_confidence,
-        sourceCount: fm.sources.length,
-        autoConfirmed: fm.auto_confirmed,
+        id: ifm.id,
+        subject: ifm.subject,
+        status: ifm.status,
+        confidence: ifm.synthesizer_confidence,
+        sourceCount: ifm.sources.length,
+        autoConfirmed: ifm.auto_confirmed,
       } satisfies RelatedIdea;
     }),
   );
-  return reads
-    .filter((i): i is RelatedIdea => i !== null)
-    .sort((a, b) => b.sourceCount - a.sourceCount);
+  return reads.filter((i): i is RelatedIdea => i !== null);
 };

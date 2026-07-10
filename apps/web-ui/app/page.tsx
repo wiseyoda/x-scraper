@@ -4,6 +4,7 @@ import { PinButton } from '@/components/PinButton';
 import { SyncButton } from '@/components/SyncButton';
 import { topAuthors } from '@/lib/author-detail';
 import { lastSyncInfo } from '@/lib/bookmark-ledger';
+import { loadConnectionsSince } from '@/lib/connections';
 import { computeDashboard, type IdeaSummary, type EntitySummary } from '@/lib/dashboard';
 import { readLastVisit } from '@/lib/lastVisit';
 import { pinnedIdSet } from '@/lib/pins';
@@ -198,7 +199,10 @@ export default async function Home(): Promise<React.JSX.Element> {
     topAuthors(8),
     lastSyncInfo(),
   ]);
-  const data = await computeDashboard(sinceCookie);
+  const [data, connections] = await Promise.all([
+    computeDashboard(sinceCookie),
+    loadConnectionsSince(sinceCookie),
+  ]);
   const staleHours =
     sync.lastBookmarkedAt !== null
       ? (Date.now() - Date.parse(sync.lastBookmarkedAt)) / (1000 * 60 * 60)
@@ -265,6 +269,49 @@ export default async function Home(): Promise<React.JSX.Element> {
           </p>
           <SyncButton tone="cta" />
         </div>
+      ) : null}
+
+      {connections.events.length > 0 ? (
+        <section className="mb-8 rounded-xl border border-sky-500/20 bg-sky-500/[0.03] p-5">
+          <header className="mb-3">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-sky-400">
+              What connected since {connections.defaulted ? 'the past 7 days' : 'your last visit'}
+            </h2>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              New bookmarks attaching to ideas and entities you already track.
+            </p>
+          </header>
+          <ul className="space-y-2">
+            {connections.events.slice(0, 8).map((ev) => (
+              <li
+                key={`${ev.sourceId}-${ev.targetId}`}
+                className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm"
+              >
+                <Link
+                  href={`/sources/${ev.sourceId}`}
+                  className="font-mono text-xs text-zinc-400 hover:text-zinc-200"
+                >
+                  {ev.sourceId}
+                </Link>
+                <span className="text-zinc-600">→</span>
+                <Link
+                  href={
+                    ev.targetKind === 'Idea'
+                      ? `/ideas/${ev.targetId}`
+                      : `/entities/${ev.targetId}`
+                  }
+                  className="text-zinc-200 hover:text-zinc-50"
+                >
+                  <span className="mr-1.5 rounded bg-zinc-800 px-1 py-0.5 text-[10px] uppercase text-zinc-500">
+                    {ev.targetKind}
+                  </span>
+                  {ev.targetId}
+                </Link>
+                <span className="text-xs text-zinc-500">— {ev.reason}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
       ) : null}
 
       {hydratedPins.length > 0 ? (

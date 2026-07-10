@@ -22,6 +22,9 @@ export default defineConfig({
       '@x-scraper/digest': resolve(__dirname, 'packages/digest/src/index.ts'),
       '@x-scraper/observability': resolve(__dirname, 'packages/observability/src/index.ts'),
       '@x-scraper/community': resolve(__dirname, 'packages/community/src/index.ts'),
+      '@x-scraper/related': resolve(__dirname, 'packages/related/src/index.ts'),
+      '@x-scraper/synthesizer': resolve(__dirname, 'packages/synthesizer/src/index.ts'),
+      '@x-scraper/capture': resolve(__dirname, 'packages/capture/src/index.ts'),
     },
   },
   test: {

@@ -1,45 +1,38 @@
 # Session Handoff
 
-> Updated 2026-07-10 — Phase 0 complete (stabilize). See `docs/PRODUCT_PLAN.md`.
+> Updated 2026-07-10 — Phase 1 complete (connection engine). See `docs/PRODUCT_PLAN.md`.
 
 ## Current State
 
-- **Branch:** `main`, commits:
-  - `187f1b4` feat(synthesizer+cli): auto-confirm policy and run-cycle command
-  - `3af6873` feat(web-ui): dashboard, inbox humanization, and sync-from-app
-- **Product plan:** Phase 0 **done**; **Current phase: Phase 1** (connection engine).
-- **Tests:** 370 passed / 3 skipped (51 files). Web-ui `tsc --noEmit` green.
-- **Node:** host is Node v26.0.0 (MODULE 147). better-sqlite3 rebuilt via `pnpm install --force`.
-- **Neo4j:** started this session (`brew services start neo4j`).
-- **Ledger:** failed 20+ (derived), new ~152 (11 organic / 141 derived), synced ~254. Full drain blocked by **invalid Gemini API key** on `embed_source`.
-- **Schedule:** **not installed** (explicit skip — no prior LaunchAgent). Code defaults to `run-cycle` mode.
+- **Branch:** `main` (local commits; Phase 0 + Phase 1 work)
+- **Product plan:** Phase 1 **done**; **Current phase: Phase 2** (living ideas & narrative digest)
+- **Tests:** 377 passed / 3 skipped (53 files), including `packages/related` (7)
+- **Keys:** Anthropic/Gemini/OpenAI verified live after billing fix
+- **Organic ledger:** fully drained (214 synced organic)
 
-## What Was Done
+## Phase 1 shipped
 
-### Phase 0 (PRODUCT_PLAN)
+- **Package:** `@x-scraper/related` — `related(id)`, `attachmentsSince()`, pure scorers
+- **CLI:** `xs related <id> [--limit=N] [--vault-only]`
+- **Web-ui:** `/sources/[id]` "Related in your vault"; homepage "What connected since…"
+- **run-cycle:** logs attachment event count after successful sync
 
-1. Landed session-9 CLI/synth + web-ui as two commits.
-2. Humanized inbox: `deriveInboxDisplay` — primary title/gist/@author, URL secondary; unit tests in `apps/web-ui/lib/inbox-display.test.ts`.
-3. Documented ledger inventory + drain attempt failures (Neo4j then Gemini key).
-4. Documented schedule install skip.
-5. V0 gates green; evidence under goal scratch + `.repostat/phase0-evidence/`.
+## Key commands
 
-## Key Decisions
-
-- Schedule install deferred (host mutation without consent).
-- Drain inventory path accepted over multi-hour sync with bad Gemini key.
-- Inbox display pure module lives in web-ui (vitest include extended for `apps/web-ui/**/*.test.ts`).
-
-## Traps
-
-- NEVER import `better-sqlite3` / `@x-scraper/queue` from web-ui — subprocess sqlite3 only.
-- Sync child must use file stdio.
-- Gemini key currently invalid — fix before expecting embed/sync success.
-- Node 26: rebuild better-sqlite3 after Node upgrades.
+```bash
+/opt/homebrew/bin/node packages/cli/dist/bin.js related idea_8ec95fc7 --limit=8 --vault-only
+pnpm exec vitest run packages/related
+pnpm --filter @x-scraper/web-ui dev   # user terminal
+```
 
 ## Next Steps
 
-1. **Phase 1** `related()` engine — start at P1.1 in `docs/PRODUCT_PLAN.md`.
-2. Fix `GEMINI_API_KEY` then `xs bookmarks sync --order=newest --limit=N` for remaining organic rows.
-3. Optionally: `xs schedule install --interval=3600 --mode=run-cycle`.
-4. Keep PRODUCT_PLAN + this file updated each session.
+1. **Phase 2** — idea prompt rewrite (thesis/evidence/open questions), digest narrative
+2. Optional: GraphStore.getEmbedding to activate live embedding-neighbor scorer
+3. Optional: drain derived ledger backlog with `--kind=derived` when useful
+
+## Traps
+
+- Web-ui must not reimplement ranking — import `@x-scraper/related` only
+- NEVER import better-sqlite3 from web-ui
+- related corpus is process-cached ~30s (`invalidateRelatedCache`)

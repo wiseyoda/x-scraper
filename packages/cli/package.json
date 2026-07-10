@@ -36,6 +36,7 @@
     "@x-scraper/observability": "workspace:*",
     "@x-scraper/queue": "workspace:*",
     "@x-scraper/reconciler": "workspace:*",
+    "@x-scraper/related": "workspace:*",
     "@x-scraper/scraper": "workspace:*",
     "@x-scraper/synthesizer": "workspace:*",
     "@x-scraper/vault": "workspace:*",

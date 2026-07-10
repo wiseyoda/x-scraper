@@ -12,7 +12,9 @@
  * `xs schedule install --mode=run-cycle` wires it into launchd.
  */
 
+import { attachmentsSince } from '@x-scraper/related';
 import type { SynthesisResult } from '@x-scraper/synthesizer';
+import { createMarkdownVault } from '@x-scraper/vault';
 
 import type { CliConfig } from '../config.js';
 import { ENV_FILE_PATH } from '../constants.js';
@@ -77,6 +79,26 @@ export const runCycle = async (
       order: options.syncOrder ?? 'oldest',
       limit: options.syncLimit ?? DEFAULT_SYNC_LIMIT,
     });
+    // Post-sync connection summary (P1.7): when new sources landed, log how
+    // many attachment edges the related engine would surface for the day.
+    const syncResult = result.sync;
+    if (syncResult.succeeded > 0) {
+      try {
+        const vault = createMarkdownVault(config.vaultDir);
+        const dayMs = 24 * 60 * 60 * 1000;
+        const since = new Date(Date.now() - dayMs).toISOString();
+        const events = await attachmentsSince({ vault, graph: null }, since, {
+          sourceLimit: syncResult.succeeded + 8,
+          relatedLimit: 3,
+        });
+        // Best-effort console signal for scheduled/run-cycle logs (P1.7).
+        console.log(
+          `run-cycle connections (24h): ${String(events.length)} attachment events after sync succeeded=${String(syncResult.succeeded)}`,
+        );
+      } catch {
+        /* non-fatal */
+      }
+    }
   } catch (err) {
     result.syncError = err instanceof Error ? err.message : String(err);
   }

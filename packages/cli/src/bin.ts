@@ -25,6 +25,7 @@ import { runInit } from './commands/init.js';
 import { MCP_CLIENTS, type McpClient, runMcpRegister } from './commands/mcp-register.js';
 import { runRefine } from './commands/refine.js';
 import { runReindex } from './commands/reindex.js';
+import { runRelated } from './commands/related.js';
 import { runReview } from './commands/review.js';
 import { runCycle } from './commands/run-cycle.js';
 import {
@@ -94,6 +95,8 @@ Commands:
        [--interval=SECONDS]         Default: 3600 (1h)
   schedule uninstall                Remove the launchd plist + bootout the agent
        [--mode=run-cycle|bookmarks-sync]
+  related <id> [--limit=N]          Rank related vault nodes for an id (connection engine)
+       [--vault-only]               Skip Neo4j (co-entity/claim/author only)
   review                            List entity records that need human triage
   help                              Show this message
 
@@ -460,6 +463,31 @@ const runMain = async (): Promise<number> => {
         return EXIT_FAIL;
       }
       console.log(`ideas reject: ${result.id} ${result.previousStatus} → ${result.newStatus}`);
+      return EXIT_OK;
+    }
+    case 'related': {
+      const id = args.positionals[0];
+      if (id === undefined || id.length === 0) {
+        console.error('xs related: missing <id>');
+        return EXIT_USAGE;
+      }
+      const limitStr = args.options.get('limit');
+      const result = await runRelated(config, {
+        id,
+        ...(limitStr === undefined ? {} : { limit: Number(limitStr) }),
+        ...(args.flags.has('vault-only') ? { vaultOnly: true } : {}),
+      });
+      console.log(
+        `related ${result.id}: ${String(result.hitCount)} hits (mode=${result.mode}${result.graphDegraded ? ', graph_degraded' : ''})`,
+      );
+      for (const h of result.hits) {
+        console.log(
+          `  ${h.score.toFixed(2).padStart(6)}  ${h.targetKind.padEnd(8)}  ${h.targetId}  — ${h.reason}`,
+        );
+      }
+      if (result.hits.length === 0) {
+        console.log('  (none)');
+      }
       return EXIT_OK;
     }
     case 'review': {
