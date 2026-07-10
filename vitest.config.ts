@@ -25,7 +25,11 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['packages/**/*.{test,spec}.ts', 'spikes/**/*.{test,spec}.ts'],
+    include: [
+      'packages/**/*.{test,spec}.ts',
+      'spikes/**/*.{test,spec}.ts',
+      'apps/web-ui/**/*.{test,spec}.ts',
+    ],
     // Integration tests are opt-in via RUN_INTEGRATION=1 because they need
     // live local services (Neo4j, etc). Excluding them in normal runs keeps
     // CI green; including them when the flag is set makes

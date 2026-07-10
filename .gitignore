@@ -6,6 +6,7 @@ node_modules/
 dist/
 build/
 *.tsbuildinfo
+apps/web-ui/.next/
 
 # Test output
 coverage/
@@ -53,3 +54,4 @@ docs/codex/
 # Local scratch dir for ramp logs, snapshots, and codex review run logs.
 # Operational artifacts of a single ingest session — not source.
 .repostat/
+.gstack/
