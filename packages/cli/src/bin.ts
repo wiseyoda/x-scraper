@@ -76,6 +76,7 @@ Commands:
   bookmarks sync                    Run pipeline against ledger rows one-at-a-time
        [--order=oldest|newest]      Default oldest-first
        [--limit=N] [--source=bookmarks|likes|posts]
+       [--kind=organic|derived]     Ledger kind (default: all)
        [--pause-on-fail] [--dry-run]
   mcp register --client=CLIENT      Wire xs-mcp into a client config
                                     (CLIENT: claude|codex|gemini)
@@ -221,9 +222,15 @@ const runMain = async (): Promise<number> => {
         return EXIT_USAGE;
       }
       const limitStr = args.options.get('limit');
+      const kindArg = args.options.get('kind');
+      if (kindArg !== undefined && kindArg !== 'organic' && kindArg !== 'derived') {
+        console.error(`xs bookmarks sync: --kind must be organic|derived (got ${kindArg})`);
+        return EXIT_USAGE;
+      }
       const result = await runBookmarksSync(config, {
         order: orderArg,
         ...(sourceArg === undefined ? {} : { source: sourceArg }),
+        ...(kindArg === undefined ? {} : { sourceKind: kindArg }),
         ...(limitStr === undefined ? {} : { limit: Number(limitStr) }),
         ...(args.flags.has('pause-on-fail') ? { pauseOnFail: true } : {}),
         ...(args.flags.has('dry-run') ? { dryRun: true } : {}),

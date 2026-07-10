@@ -209,6 +209,11 @@ export interface BookmarksSyncOptions {
   limit?: number;
   pauseOnFail?: boolean;
   source?: BookmarkSource;
+  /**
+   * Ledger kind filter. Prefer `organic` for user bookmarks; `derived`
+   * are URLs expanded from tweet bodies and often fail extraction.
+   */
+  sourceKind?: 'organic' | 'derived';
   /** Skip the actual graph write — useful when dogfooding the parser. */
   dryRun?: boolean;
   logger?: Logger;
@@ -339,15 +344,18 @@ export const runBookmarksSync = async (
     order: 'oldest' | 'newest';
     limit?: number;
     source?: BookmarkSource;
+    sourceKind?: 'organic' | 'derived';
   } = { status: 'new', order };
   if (options.limit !== undefined) filter.limit = options.limit;
   if (options.source !== undefined) filter.source = options.source;
+  if (options.sourceKind !== undefined) filter.sourceKind = options.sourceKind;
   const candidates = queue.listBookmarks(filter);
   queue.close();
 
   logger.info('bookmarks.sync.started', {
     order,
     candidates: candidates.length,
+    sourceKind: options.sourceKind ?? 'all',
     pauseOnFail: options.pauseOnFail === true,
   });
 
